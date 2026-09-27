@@ -1,0 +1,217 @@
+{
+  "schema_version": "real-driver-scenario-v1",
+  "id": "reset_after_configuration",
+  "action": "reset",
+  "initial": [],
+  "required_observations": [
+    "api.init",
+    "interface.result",
+    "chip_id",
+    "calib.dig_t1",
+    "calib.dig_t2",
+    "calib.dig_h1",
+    "calib.dig_h2",
+    "calib.dig_h4",
+    "calib.dig_h5",
+    "calib.dig_h6",
+    "api.configure",
+    "api.reset"
+  ],
+  "assertions": [
+    {
+      "id": "init_success",
+      "source": "observation",
+      "observation": "api.init",
+      "equals": 0,
+      "basis": "Actual upstream initialization succeeds"
+    },
+    {
+      "id": "interface_success",
+      "source": "observation",
+      "observation": "interface.result",
+      "equals": 0,
+      "basis": "Final upstream callback status is success"
+    },
+    {
+      "id": "chip_id",
+      "source": "observation",
+      "observation": "chip_id",
+      "equals": 96,
+      "basis": "Upstream stored the actual chip ID"
+    },
+    {
+      "id": "dig_t1",
+      "source": "observation",
+      "observation": "calib.dig_t1",
+      "equals": 513,
+      "basis": "Independent little-endian parse of instance bytes 1 and 2"
+    },
+    {
+      "id": "dig_t2",
+      "source": "observation",
+      "observation": "calib.dig_t2",
+      "equals": 1027,
+      "basis": "Independent little-endian signed parse of bytes 3 and 4"
+    },
+    {
+      "id": "dig_h1",
+      "source": "observation",
+      "observation": "calib.dig_h1",
+      "equals": 26,
+      "basis": "Instance byte at 0xA1"
+    },
+    {
+      "id": "dig_h2",
+      "source": "observation",
+      "observation": "calib.dig_h2",
+      "equals": 26213,
+      "basis": "Independent little-endian parse of 0x65 and 0x66"
+    },
+    {
+      "id": "dig_h4",
+      "source": "observation",
+      "observation": "calib.dig_h4",
+      "equals": 1673,
+      "basis": "Independent packed-field parse"
+    },
+    {
+      "id": "dig_h5",
+      "source": "observation",
+      "observation": "calib.dig_h5",
+      "equals": 1702,
+      "basis": "Independent packed-field parse"
+    },
+    {
+      "id": "dig_h6",
+      "source": "observation",
+      "observation": "calib.dig_h6",
+      "equals": 107,
+      "basis": "Instance byte at 0xE7"
+    },
+    {
+      "id": "configure_success",
+      "source": "observation",
+      "observation": "api.configure",
+      "equals": 0,
+      "basis": "Actual public settings API succeeds"
+    },
+    {
+      "id": "reset_success",
+      "source": "observation",
+      "observation": "api.reset",
+      "equals": 0,
+      "basis": "Actual public soft reset succeeds"
+    },
+    {
+      "id": "pending_reset",
+      "source": "model",
+      "ref": {
+        "kind": "field",
+        "register": "ctrl_hum",
+        "field": "osrs_h"
+      },
+      "equals": 0,
+      "basis": "Reset clears pending configuration"
+    },
+    {
+      "id": "effective_reset",
+      "source": "model",
+      "ref": {
+        "kind": "state",
+        "id": "effective_osrs_h"
+      },
+      "equals": 0,
+      "basis": "Reset clears effective configuration"
+    },
+    {
+      "id": "nvm_preserved",
+      "source": "model",
+      "ref": {
+        "kind": "field",
+        "register": "calib_88",
+        "field": "value"
+      },
+      "equals": 1,
+      "basis": "Reset preserves instance NVM"
+    }
+  ],
+  "expected_callbacks": [
+    {
+      "operation": "read",
+      "register_address": 208,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "write",
+      "register_address": 224,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "delay",
+      "duration_us": 2000,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 243,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 136,
+      "length": 26,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 225,
+      "length": 7,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 244,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "write",
+      "register_address": 242,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 244,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "write",
+      "register_address": 244,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "write",
+      "register_address": 224,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "delay",
+      "duration_us": 2000,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 243,
+      "length": 1,
+      "status": 0
+    }
+  ],
+  "expected_faults": []
+}

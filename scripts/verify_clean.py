@@ -10,7 +10,14 @@ with tempfile.TemporaryDirectory(prefix="ghostchip-clean-") as temp:
     target = Path(temp) / "source"
     shutil.copytree(root, target, ignore=shutil.ignore_patterns(
         ".git", ".venv", ".venv-wsl", "__pycache__", "artifacts", "datasheet.pdf"))
-    for command in ([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
-                    [sys.executable, "-m", "ghostchip.proof"]):
-        subprocess.run(command, cwd=target, check=True, timeout=60)
-print("Clean-source reproduction passed; optional vendor PDF intentionally absent.")
+    commands = [
+        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+        [sys.executable, "-m", "ghostchip.proof"],
+    ]
+    commands.extend([sys.executable, "-m", "ghostchip.real_driver", "--case", case]
+                    for case in ("init_ok", "wrong_chip_id", "chip_id_bus_error",
+                                 "calibration_bus_error", "humidity_x4",
+                                 "humidity_x4_no_latch", "reset_after_configuration"))
+    for command in commands:
+        subprocess.run(command, cwd=target, check=True, timeout=90)
+print("Clean-source reproduction passed; vendored Bosch core rebuilt and optional vendor PDFs intentionally absent.")

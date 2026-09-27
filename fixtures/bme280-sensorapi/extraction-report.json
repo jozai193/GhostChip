@@ -1,0 +1,20 @@
+{
+  "extractor": "bme280-sensorapi-v1",
+  "candidate_status": "pending_review",
+  "source_sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
+  "candidate_sha256": "251d44cd1a12b75a9b7b85ba6e74a772f22dbaa6bc50294a7c6ecb6dde6ba189",
+  "automatic": [
+    "register map and bounded calibration/read/latch categories"
+  ],
+  "manual_inputs": [
+    "register slice",
+    "board address",
+    "settle abstraction",
+    "calibration instance values",
+    "evidence acceptance"
+  ],
+  "unresolved": [],
+  "review_status": "applied",
+  "reviewed_spec_written": true,
+  "reviewed_bundle": "reviewed-bundle-1eca5c3472d43f325e1b78d01f79b3b97c9b393b4d4178ee9c44e7a7270ba873.json"
+}

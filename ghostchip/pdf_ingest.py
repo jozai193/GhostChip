@@ -79,10 +79,12 @@ def ingest_pdf(path, *, expected_sha256=None):
     return PdfDocument(str(path), digest, len(data), len(pages), metadata, tuple(pages))
 
 
-def document_from_page_map(page_count, pages, *, sha256, metadata=None, path="golden-page-map"):
+def document_from_page_map(page_count, pages, *, sha256, metadata=None, path="golden-page-map",
+                           page_hashes=None):
     """Build a document from reviewed page text for offline golden tests."""
     page_objects = []
     for number in range(1, page_count + 1):
         text = normalize_text(pages.get(str(number), pages.get(number, "")))
-        page_objects.append(PageText(number, text, hashlib.sha256(text.encode()).hexdigest()))
+        text_hash = (page_hashes or {}).get(str(number), (page_hashes or {}).get(number))
+        page_objects.append(PageText(number, text, text_hash or hashlib.sha256(text.encode()).hexdigest()))
     return PdfDocument(path, sha256, 0, page_count, metadata or {}, tuple(page_objects))

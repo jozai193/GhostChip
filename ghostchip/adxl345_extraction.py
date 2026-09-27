@@ -184,9 +184,9 @@ def extract_candidate(document, request):
         document,
         r"interrupt\s+functions\s+are\s+latched\s+and\s+cleared.*?reading\s+the\s+INT_SOURCE\s+register",
     )
-    if not int_match:
+    if not (int_match and int_general):
         unresolved.append({"kind": "interrupt_clear", "status": "not_extracted",
-                           "detail": "Selective INT_SOURCE clear prose was not found; no read-clear rule was emitted."})
+                           "detail": "Selective and overview INT_SOURCE clear evidence were not both found; no read-clear rule was emitted."})
     else:
         exceptions = {"data_ready", "watermark", "overrun"}
         clear_fields = [field for field in definitions["int_source"]["fields"]

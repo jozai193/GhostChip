@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/boschsensortec/BME280_SensorAPI",
+  "commit": "c90d419492e26dd95586598a794e65eb2760753a",
+  "source_banner_version": "3.5.1",
+  "license": "BSD-3-Clause",
+  "modifications": [],
+  "files": [
+    {"path": "bme280.c", "url": "https://raw.githubusercontent.com/boschsensortec/BME280_SensorAPI/c90d419492e26dd95586598a794e65eb2760753a/bme280.c", "sha256": "7de1e7d3082b85e90db1daa34573ba77553a7caf44e06e216de5216b7ed4fa12"},
+    {"path": "bme280.h", "url": "https://raw.githubusercontent.com/boschsensortec/BME280_SensorAPI/c90d419492e26dd95586598a794e65eb2760753a/bme280.h", "sha256": "6f144510e103f0ab1a24244a71f7ff8ab7f23147b4899aa7bfd0f526062d2163"},
+    {"path": "bme280_defs.h", "url": "https://raw.githubusercontent.com/boschsensortec/BME280_SensorAPI/c90d419492e26dd95586598a794e65eb2760753a/bme280_defs.h", "sha256": "541bbd32498b8603bc8fe8eafac26b15d09fb032d37448ca88e7aa398d6a0769"},
+    {"path": "LICENSE", "url": "https://raw.githubusercontent.com/boschsensortec/BME280_SensorAPI/c90d419492e26dd95586598a794e65eb2760753a/LICENSE", "sha256": "8c966978a9f67992e824d0b76381eab42f240c0049881f7bf2b46c2c093191aa"}
+  ]
+}

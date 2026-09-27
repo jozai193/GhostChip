@@ -1,6 +1,9 @@
 {
+  "bundle_version": "review-bundle-v1",
   "source_sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
   "candidate_sha256": "5fe6b9f5cdb727dca13ca6a3831e52057ead996dc5cf1bbaaf2194c49a896731",
+  "request_sha256": "300420657d877d60c991dd1998b15e87dbae8faf79370d17e7a2d50c678c9686",
+  "anchors_sha256": "22a530f2b04a972bf34c2cc8e810898f0b913fd8139db80a8db259703832b4d9",
   "accepted_evidence": [
     "register_id",
     "register_id_reset",

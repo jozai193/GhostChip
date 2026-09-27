@@ -1,9 +1,10 @@
-# GhostChip — evidence-backed extraction and deterministic proof
+# GhostChip — reviewed virtual peripherals running real driver callbacks
 
-This repository contains DeviceSpec v1, the original hand-authored BME280 regression baseline, and an automatic PDF-to-candidate pipeline whose reviewed output drives compiled C FAIL → PASS proofs through a live virtual bus. Stage 3 generalizes that pipeline to two materially different ADXL345 behaviors without device-specific runtime branches. It is still a bounded proof, not a complete sensor emulator or frontend.
+GhostChip now compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual read, write, and delay callbacks to a reviewed bounded virtual peripheral. Stage 4 demonstrates real initialization, wrong-ID branching, communication-error propagation, calibration parsing, humidity latching, and reset-after-configuration. It remains a bounded reviewed proof—not a complete sensor emulator, arbitrary driver platform, or frontend.
 
 - [Architecture audit](docs/architecture.md)
 - [DeviceSpec v1 contract](docs/devicespec-v1.md) and [machine-readable schema](schema/devicespec-v1.schema.json)
+- [DeviceSpec 1.1 bounded additions](docs/devicespec-v1.1.md)
 - [Five highest-risk assumptions](docs/risks.md)
 - [Gated implementation plan](docs/implementation-plan.md)
 - [Verification record](docs/verification.md)
@@ -15,8 +16,9 @@ This repository contains DeviceSpec v1, the original hand-authored BME280 regres
 The existing Ubuntu WSL environment has Python 3.12.3, GCC and jsonschema 4.10.3. From PowerShell:
 
 ```powershell
-wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec python3 -m ghostchip.proof
-wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec python3 -m unittest discover -s tests -v
+wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m ghostchip.proof
+wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m unittest discover -s tests -v
+wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m ghostchip.real_driver --case init_ok
 ```
 
 On another Linux/WSL environment, install a C11 GCC toolchain and Python 3.10+, create a Python virtual environment, then:
@@ -28,12 +30,26 @@ python3 -m ghostchip.extract fixtures/bme280/datasheet.pdf \
   --review fixtures/bme280/extraction-review.json \
   --output-dir artifacts/bme280-extraction
 python3 -m ghostchip.proof \
-  --spec artifacts/bme280-extraction/reviewed.devicespec.json \
+  --bundle artifacts/bme280-extraction/reviewed-bundle-<hash>.json \
   --output artifacts/bme280-extraction/proof.json
 python3 -m ghostchip.proof
 python3 -m unittest discover -s tests -v
 python3 scripts/verify_clean.py
 ```
+
+Run any mandatory real-driver case with:
+
+```sh
+python3 -m ghostchip.real_driver --case init_ok
+python3 -m ghostchip.real_driver --case wrong_chip_id
+python3 -m ghostchip.real_driver --case chip_id_bus_error
+python3 -m ghostchip.real_driver --case calibration_bus_error
+python3 -m ghostchip.real_driver --case humidity_x4
+python3 -m ghostchip.real_driver --case humidity_x4_no_latch
+python3 -m ghostchip.real_driver --case reset_after_configuration
+```
+
+The no-latch case is an explicitly **UNREVIEWED negative-control model** and is expected to report FAIL. Every other case is expected to PASS. Each invocation recompiles the pristine vendored core in a new temporary directory, verifies upstream hashes before and after the build, and records compiler, dependency, executable, model-bundle, Scenario, instance, FaultPlan, callback, observation, and runtime identities under `artifacts/bosch-bme280/`.
 
 The ADXL345 Stage 3 path is:
 
@@ -43,7 +59,7 @@ python3 -m ghostchip.extract fixtures/adxl345/datasheet.pdf \
   --review fixtures/adxl345/extraction-review.json \
   --output-dir artifacts/adxl345-extraction
 python3 -m ghostchip.proof \
-  --spec artifacts/adxl345-extraction/reviewed.devicespec.json \
+  --bundle artifacts/adxl345-extraction/reviewed-bundle-<hash>.json \
   --scenario fixtures/adxl345/scenario.json \
   --drivers examples/adxl345_buggy.c examples/adxl345_fixed.c \
   --output artifacts/adxl345-extraction/proof.json
@@ -73,18 +89,18 @@ Get-FileHash 'fixtures/bme280/datasheet.pdf' -Algorithm SHA256
 ```
 
 Expected SHA-256: `a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89`.
-The source test skips when the optional PDF is absent and fails if present bytes differ. A changed vendor download requires review, not changing the hash merely to get green tests. The default proof remains the hand-authored regression baseline. The extraction commands above parse the pinned PDF, emit a pending candidate, apply a hash-bound evidence review, and pass that extracted specification explicitly to the proof runner. Its `model_origin` is `automatic_extraction_reviewed`.
+The source test skips when the optional PDF is absent and fails if present bytes differ. A changed vendor download requires review, not changing the hash merely to get green tests. The default proof remains the hand-authored regression baseline. The extraction commands above parse the pinned PDF, emit a pending candidate, apply a request/anchor/candidate-hash-bound review, and pass its reconstructed bundle explicitly to the proof runner. Its `model_origin` is `automatic_extraction_reviewed_bundle`.
 
 ## Automatic versus reviewed
 
 Automatic: PDF hash/page ingestion; register heading, address, reset, access and bit-field extraction for the requested slice; recognition of the write-latch sentence; creation of `effective_osrs_h` and the generic `after_write` transition; page/section evidence and source-page hashes; schema and semantic validation.
 
-Explicit manual inputs: which register slice to model, the board-selected 0x76 address, the sleep-only coverage constraint, stable rule naming for the existing Scenario link, and evidence acceptance. Review only changes `pending` to `accepted`; it cannot inject semantics, and it is invalidated by any candidate hash change. Missing latch prose produces an unresolved report and no rule.
+Explicit manual inputs: which register slice to model, the board-selected 0x76 address, the sleep-only coverage constraint, the conservative reset-settle abstraction, deterministic device-instance calibration bytes, stable rule naming, Scenario expectations, and evidence acceptance. Review only changes `pending` to `accepted`; it cannot inject semantics. Execution reconstructs the exact candidate/review/request/anchor bundle, so stale reviewed semantics cannot reach compilation.
 
 ## Scope and execution limits
 
-Implemented: bounded PDF ingestion, heuristic candidate extraction for this BME280 slice, hash-bound review, strict schema and semantic validation, byte registers, internal state, guarded read/write effects, source provenance, live one-byte I²C-style HAL, bounded local processes and deterministic scenario evaluation.
+Implemented: bounded PDF ingestion, source-layout extraction for reviewed slices, execution-time review-bundle verification, strict DeviceSpec/Scenario/FaultPlan validation, byte registers, internal state, bounded incrementing reads, explicit virtual delay/settle time, parameterized instance bytes, callback faults, typed API observations, pristine Bosch core compilation, build/source identity, and deterministic scenario evaluation.
 
-Not implemented: general arbitrary-datasheet or LLM extraction, UI/API, automated repair, full vendor SDK, real I²C/SPI signaling, measurement/timing, remote uploads or deployment. The two deterministic source-layout adapters are device-document-specific; their candidate output must pass one shared validator/reviewer/runtime. Unsupported or missing prose is reported rather than approximated. Corrected C sources are manually prepared fixtures, not AI-generated patches.
+Not implemented: general arbitrary-datasheet or LLM extraction, UI/API, automated repair, arbitrary vendor SDKs, real I²C/SPI signaling, measurement/compensation, MCU emulation, remote uploads, or deployment. The deterministic source-layout adapters are device-document-specific; their candidates must pass one shared validator/reviewer/runtime. The Stage 4 adapter never supplies sensor bytes or canned API results; those come from reviewed model, instance, and FaultPlan inputs.
 
 Run only trusted code with this local runner. Its subprocess limits are not filesystem/network isolation. No remote repository or product deployment was created. Original project code is newly authored; no project distribution license has been selected. The vendor PDF remains vendor material and dependencies retain their licenses.

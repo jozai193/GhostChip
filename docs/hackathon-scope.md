@@ -1,9 +1,9 @@
 # Current scope boundary
 
-Authorized: preserve the evidence-backed BME280 baseline and complete the highest-risk ADXL345 generalization without building the frontend.
+Authorized and completed through Stage 4: preserve the original BME280 and ADXL345 proofs, repair the Stage 3 integrity defects, and execute the pinned Bosch SensorAPI through real callbacks. Frontend and AI repair remain deferred.
 
-Completed: the prior audit and BME280 proof, plus a second pinned-PDF adapter, pending candidate extraction, hash-bound review, generic pre-run stimuli/process-exit observations, and execution of two reviewed ADXL345 rules against compiled C fixtures.
+Completed: execution-time reviewed-bundle identity; explicit unresolved ADXL evidence handling; physically consistent FIFO setup; DeviceSpec 1.1 parameter/settle/burst categories; separate Scenario, instance, and FaultPlan inputs; pristine Bosch initialization/configuration/reset; signed API-result observations; communication-failure injection; and complete source/build identities.
 
-The product's broad headline is still a future goal. Today's accurate claim is: **For bounded BME280 and ADXL345 slices, GhostChip automatically extracts register semantics and three stateful rules with page evidence; after explicit evidence acceptance, the same generic runtime distinguishes buggy from corrected compiled C sequences.**
+Today's strongest accurate claim is: **GhostChip compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual hardware callbacks to a reviewed, bounded virtual peripheral derived from the datasheet. It demonstrates real initialization, read-dependent branching, communication-error propagation and humidity latching using explicit test calibration bytes and a scoped reset-settling model.**
 
-No frontend/API, database, cloud resources, probabilistic model calls, AI repair, third-party driver adaptation or submission assets were created. General arbitrary-datasheet extraction and physical hardware fidelity are not claimed.
+No frontend/API, database, cloud resources, probabilistic model calls, AI repair, arbitrary driver upload, measurement simulator or submission assets were created. General arbitrary-datasheet comprehension, broad driver compatibility, silicon equivalence, full BME280 behavior, and discovery of a Bosch bug are not claimed.

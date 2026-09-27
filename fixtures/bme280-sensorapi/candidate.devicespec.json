@@ -1,0 +1,1325 @@
+{
+  "schema_version": "1.1.0",
+  "profile": "i2c-reg8-settle-v1",
+  "device": {
+    "name": "BME280 SensorAPI initialization and humidity-configuration slice",
+    "vendor": "Bosch Sensortec",
+    "bus": "i2c",
+    "address": 118
+  },
+  "scope": {
+    "description": "Reviewed initialization, reset-settle, calibration-read and sleep-mode humidity configuration slice for the pinned Bosch SensorAPI.",
+    "unsupported": [
+      "measurement data and compensation verification",
+      "forced and normal mode",
+      "SPI and electrical I2C behavior",
+      "early reset-status polling inside the settle interval",
+      "multi-byte writes and registers outside this slice"
+    ],
+    "write_constraints": [
+      {
+        "register": "ctrl_meas",
+        "mask": 3,
+        "equals": 0,
+        "reason": "Measurement modes are outside the Stage 4 slice"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "bosch_bme280",
+      "url": "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bme280-ds002.pdf",
+      "sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
+      "page_count": 60,
+      "revision": "Cover 1.24 February 2024; inner footers retain 1.23"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "startup_bound",
+      "source_id": "bosch_bme280",
+      "pdf_page": 8,
+      "printed_page": "8",
+      "section": "1, Table 1",
+      "summary": "The specified startup time bound is 2 ms.",
+      "origin": "model_extraction",
+      "review": "pending",
+      "confidence": 0.95
+    },
+    {
+      "id": "calibration_bank_layout",
+      "source_id": "bosch_bme280",
+      "pdf_page": 24,
+      "printed_page": "24",
+      "section": "4.2.2, Table 16",
+      "summary": "Device-individual calibration bytes occupy 0x88..0xA1 and 0xE1..0xE7.",
+      "origin": "model_extraction",
+      "review": "pending",
+      "confidence": 0.95
+    },
+    {
+      "id": "humidity_calibration_tail",
+      "source_id": "bosch_bme280",
+      "pdf_page": 25,
+      "printed_page": "25",
+      "section": "4.2.2, Table 16",
+      "summary": "The humidity calibration layout continues through 0xE7.",
+      "origin": "model_extraction",
+      "review": "pending",
+      "confidence": 0.95
+    },
+    {
+      "id": "register_map_reset",
+      "source_id": "bosch_bme280",
+      "pdf_page": 27,
+      "printed_page": "27",
+      "section": "5.3 Table 18; 5.4.1-5.4.3",
+      "summary": "The map identifies chip ID, reset, status and control registers; reset command 0xB6 performs complete reset.",
+      "origin": "model_extraction",
+      "review": "pending",
+      "confidence": 0.95
+    },
+    {
+      "id": "status_and_control",
+      "source_id": "bosch_bme280",
+      "pdf_page": 28,
+      "printed_page": "28",
+      "section": "5.4.4-5.4.5",
+      "summary": "Status exposes im_update and ctrl_meas completes the humidity-control latch.",
+      "origin": "model_extraction",
+      "review": "pending",
+      "confidence": 0.95
+    },
+    {
+      "id": "incrementing_reads",
+      "source_id": "bosch_bme280",
+      "pdf_page": 32,
+      "printed_page": "32",
+      "section": "6.3",
+      "summary": "Multiple-byte reads use an auto-incremented register address.",
+      "origin": "model_extraction",
+      "review": "pending",
+      "confidence": 0.95
+    },
+    {
+      "id": "paired_address_writes",
+      "source_id": "bosch_bme280",
+      "pdf_page": 33,
+      "printed_page": "33",
+      "section": "6.3",
+      "summary": "Multiple-byte writes are address/data pairs rather than ordinary incrementing writes.",
+      "origin": "model_extraction",
+      "review": "pending",
+      "confidence": 0.95
+    },
+    {
+      "id": "soft_reset_settle_abstraction",
+      "source_id": "bosch_bme280",
+      "pdf_page": 8,
+      "printed_page": "8",
+      "section": "Reviewed modeling basis",
+      "summary": "A 2000 us observation boundary conservatively combines the source startup maximum with the upstream wait.",
+      "origin": "reviewed_abstraction",
+      "review": "pending",
+      "confidence": null
+    }
+  ],
+  "registers": [
+    {
+      "id": "chip_id",
+      "address": 208,
+      "width": 8,
+      "reset": 96,
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "register_map_reset"
+      ]
+    },
+    {
+      "id": "reset",
+      "address": 224,
+      "width": 8,
+      "reset": 0,
+      "access": "rw",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "command",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "register_map_reset"
+      ]
+    },
+    {
+      "id": "ctrl_hum",
+      "address": 242,
+      "width": 8,
+      "reset": 0,
+      "access": "rw",
+      "reserved_mask": 248,
+      "fields": [
+        {
+          "id": "osrs_h",
+          "lsb": 0,
+          "width": 3
+        }
+      ],
+      "evidence": [
+        "register_map_reset",
+        "status_and_control"
+      ]
+    },
+    {
+      "id": "status",
+      "address": 243,
+      "width": 8,
+      "reset": 0,
+      "access": "ro",
+      "reserved_mask": 246,
+      "fields": [
+        {
+          "id": "im_update",
+          "lsb": 0,
+          "width": 1
+        },
+        {
+          "id": "measuring",
+          "lsb": 3,
+          "width": 1
+        }
+      ],
+      "evidence": [
+        "register_map_reset",
+        "status_and_control"
+      ]
+    },
+    {
+      "id": "ctrl_meas",
+      "address": 244,
+      "width": 8,
+      "reset": 0,
+      "access": "rw",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "mode",
+          "lsb": 0,
+          "width": 2
+        },
+        {
+          "id": "osrs_p",
+          "lsb": 2,
+          "width": 3
+        },
+        {
+          "id": "osrs_t",
+          "lsb": 5,
+          "width": 3
+        }
+      ],
+      "evidence": [
+        "register_map_reset",
+        "status_and_control"
+      ]
+    },
+    {
+      "id": "calib_88",
+      "address": 136,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_88"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_89",
+      "address": 137,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_89"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8a",
+      "address": 138,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_8a"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8b",
+      "address": 139,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_8b"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8c",
+      "address": 140,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_8c"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8d",
+      "address": 141,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_8d"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8e",
+      "address": 142,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_8e"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8f",
+      "address": 143,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_8f"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_90",
+      "address": 144,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_90"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_91",
+      "address": 145,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_91"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_92",
+      "address": 146,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_92"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_93",
+      "address": 147,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_93"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_94",
+      "address": 148,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_94"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_95",
+      "address": 149,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_95"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_96",
+      "address": 150,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_96"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_97",
+      "address": 151,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_97"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_98",
+      "address": 152,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_98"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_99",
+      "address": 153,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_99"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9a",
+      "address": 154,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_9a"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9b",
+      "address": 155,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_9b"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9c",
+      "address": 156,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_9c"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9d",
+      "address": 157,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_9d"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9e",
+      "address": 158,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_9e"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9f",
+      "address": 159,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_9f"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_a0",
+      "address": 160,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_a0"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_a1",
+      "address": 161,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_a1"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_e1",
+      "address": 225,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_e1"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e2",
+      "address": 226,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_e2"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e3",
+      "address": 227,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_e3"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e4",
+      "address": 228,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_e4"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e5",
+      "address": 229,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_e5"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e6",
+      "address": 230,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_e6"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e7",
+      "address": 231,
+      "width": 8,
+      "reset": {
+        "parameter": "calib_e7"
+      },
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "value",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    }
+  ],
+  "state": [
+    {
+      "id": "effective_osrs_h",
+      "width": 3,
+      "reset": 0,
+      "evidence": [
+        "register_map_reset",
+        "status_and_control"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "soft_reset",
+      "on": {
+        "event": "after_write",
+        "register": "reset"
+      },
+      "when": {
+        "ref": {
+          "kind": "field",
+          "register": "reset",
+          "field": "command"
+        },
+        "equals": 182
+      },
+      "effects": [
+        {
+          "target": {
+            "kind": "field",
+            "register": "ctrl_hum",
+            "field": "osrs_h"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "kind": "field",
+            "register": "ctrl_meas",
+            "field": "mode"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "kind": "field",
+            "register": "ctrl_meas",
+            "field": "osrs_p"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "kind": "field",
+            "register": "ctrl_meas",
+            "field": "osrs_t"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "kind": "field",
+            "register": "status",
+            "field": "im_update"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "kind": "field",
+            "register": "status",
+            "field": "measuring"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "kind": "state",
+            "id": "effective_osrs_h"
+          },
+          "value": 0
+        }
+      ],
+      "settle_us": 2000,
+      "evidence": [
+        "register_map_reset",
+        "startup_bound",
+        "soft_reset_settle_abstraction"
+      ]
+    },
+    {
+      "id": "reset_reads_zero",
+      "on": {
+        "event": "after_write",
+        "register": "reset"
+      },
+      "effects": [
+        {
+          "target": {
+            "kind": "field",
+            "register": "reset",
+            "field": "command"
+          },
+          "value": 0
+        }
+      ],
+      "evidence": [
+        "register_map_reset"
+      ]
+    },
+    {
+      "id": "humidity_latch",
+      "on": {
+        "event": "after_write",
+        "register": "ctrl_meas"
+      },
+      "effects": [
+        {
+          "target": {
+            "kind": "state",
+            "id": "effective_osrs_h"
+          },
+          "value": {
+            "kind": "field",
+            "register": "ctrl_hum",
+            "field": "osrs_h"
+          }
+        }
+      ],
+      "evidence": [
+        "register_map_reset",
+        "status_and_control"
+      ]
+    }
+  ],
+  "parameters": [
+    {
+      "id": "calib_88",
+      "width": 8,
+      "address": 136,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_89",
+      "width": 8,
+      "address": 137,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8a",
+      "width": 8,
+      "address": 138,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8b",
+      "width": 8,
+      "address": 139,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8c",
+      "width": 8,
+      "address": 140,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8d",
+      "width": 8,
+      "address": 141,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8e",
+      "width": 8,
+      "address": 142,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_8f",
+      "width": 8,
+      "address": 143,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_90",
+      "width": 8,
+      "address": 144,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_91",
+      "width": 8,
+      "address": 145,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_92",
+      "width": 8,
+      "address": 146,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_93",
+      "width": 8,
+      "address": 147,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_94",
+      "width": 8,
+      "address": 148,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_95",
+      "width": 8,
+      "address": 149,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_96",
+      "width": 8,
+      "address": 150,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_97",
+      "width": 8,
+      "address": 151,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_98",
+      "width": 8,
+      "address": 152,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_99",
+      "width": 8,
+      "address": 153,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9a",
+      "width": 8,
+      "address": 154,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9b",
+      "width": 8,
+      "address": 155,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9c",
+      "width": 8,
+      "address": 156,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9d",
+      "width": 8,
+      "address": 157,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9e",
+      "width": 8,
+      "address": 158,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_9f",
+      "width": 8,
+      "address": 159,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_a0",
+      "width": 8,
+      "address": 160,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_a1",
+      "width": 8,
+      "address": 161,
+      "evidence": [
+        "calibration_bank_layout"
+      ]
+    },
+    {
+      "id": "calib_e1",
+      "width": 8,
+      "address": 225,
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e2",
+      "width": 8,
+      "address": 226,
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e3",
+      "width": 8,
+      "address": 227,
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e4",
+      "width": 8,
+      "address": 228,
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e5",
+      "width": 8,
+      "address": 229,
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e6",
+      "width": 8,
+      "address": 230,
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    },
+    {
+      "id": "calib_e7",
+      "width": 8,
+      "address": 231,
+      "evidence": [
+        "calibration_bank_layout",
+        "humidity_calibration_tail"
+      ]
+    }
+  ],
+  "transport": {
+    "max_read_length": 32,
+    "incrementing_read_ranges": [
+      {
+        "start": 136,
+        "length": 26
+      },
+      {
+        "start": 225,
+        "length": 7
+      }
+    ]
+  }
+}

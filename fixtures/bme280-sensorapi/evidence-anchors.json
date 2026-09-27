@@ -1,0 +1,42 @@
+[
+  {
+    "evidence_id": "startup_bound",
+    "pdf_page": 8,
+    "page_text_sha256": "dcd6be069ab8cf1503acca271d2cb8b5dcb6bf85e65e07b407b7408d3034a25a"
+  },
+  {
+    "evidence_id": "calibration_bank_layout",
+    "pdf_page": 24,
+    "page_text_sha256": "c9a8389307c2bfc719e33b40d1c4ae5b072b80728ab68470b2508d104f303053"
+  },
+  {
+    "evidence_id": "humidity_calibration_tail",
+    "pdf_page": 25,
+    "page_text_sha256": "eb3e5812ed0c3a5a87b351f6e0c08eca629223cafeeb211b3d16a20de017bb05"
+  },
+  {
+    "evidence_id": "register_map_reset",
+    "pdf_page": 27,
+    "page_text_sha256": "34ecf54dc51625baf0294e08bf35920b4f8a093241bd10622945810e007dc4c2"
+  },
+  {
+    "evidence_id": "status_and_control",
+    "pdf_page": 28,
+    "page_text_sha256": "21e05650588ae80c94eb86d6af86bd54cf7ff42af1e036350df4fca24db97ea7"
+  },
+  {
+    "evidence_id": "incrementing_reads",
+    "pdf_page": 32,
+    "page_text_sha256": "f7835985fa3bff385024d6fba6b4107ae4786151410fd96f161415d8481e416b"
+  },
+  {
+    "evidence_id": "paired_address_writes",
+    "pdf_page": 33,
+    "page_text_sha256": "3800475d32b8a4e1a86b74433f4b951b4a015bbda89b24f0422d54913ba5b2e7"
+  },
+  {
+    "evidence_id": "soft_reset_settle_abstraction",
+    "pdf_page": 8,
+    "page_text_sha256": "dcd6be069ab8cf1503acca271d2cb8b5dcb6bf85e65e07b407b7408d3034a25a"
+  }
+]

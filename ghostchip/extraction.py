@@ -354,12 +354,16 @@ def extract_candidate(document, request):
     if request.get("extractor") == "adxl345-rev-g-v1":
         from .adxl345_extraction import extract_candidate as extract_adxl345
         return extract_adxl345(document, request)
+    if request.get("extractor") == "bme280-sensorapi-v1":
+        from .bme280_sensorapi_extraction import extract_candidate as extract_bme280_sensorapi
+        return extract_bme280_sensorapi(document, request)
     return _extract_latch_candidate(document, request)
 
 
 def accept_review(candidate, review):
     """Apply review statuses only when the manifest exactly identifies the candidate."""
-    allowed = {"source_sha256", "candidate_sha256", "accepted_evidence", "review_basis", "limitations"}
+    allowed = {"bundle_version", "source_sha256", "candidate_sha256", "request_sha256",
+               "anchors_sha256", "accepted_evidence", "review_basis", "limitations"}
     if set(review) - allowed:
         raise ReviewError("Review manifests may contain decisions and notes, not semantic overrides")
     if review["source_sha256"].lower() != candidate["sources"][0]["sha256"]:

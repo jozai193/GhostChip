@@ -16,6 +16,7 @@ import time
 
 from .runtime import Peripheral
 from .spec import ROOT, load
+from .review import load_review_bundle
 
 FIXTURE = ROOT / "fixtures/bme280"
 
@@ -81,14 +82,23 @@ def bounded_process(argv, cwd, handler=None, timeout=10, limit=65536):
         proc.stdout.close()
 
 
-def run_fixture(driver, *, spec=None, scenario=None):
-    spec = load(FIXTURE / "devicespec.json") if spec is None else spec
+def run_fixture(driver, *, spec=None, scenario=None, review_bundle=None, model_origin=None):
+    if review_bundle is not None:
+        bundle = load_review_bundle(review_bundle)
+        spec = bundle["reviewed_spec"]
+        bundle_identity = bundle["identities"]
+        model_origin = "automatic_extraction_reviewed_bundle"
+    else:
+        bundle_identity = None
+        if spec is None:
+            spec = load(FIXTURE / "devicespec.json")
+            model_origin = model_origin or "hand_authored_reviewed_fixture"
+        elif model_origin is None:
+            raise ValueError("Raw DeviceSpec execution requires an explicit non-bundle model_origin")
     scenario = json.loads((FIXTURE / "scenario.json").read_text()) if scenario is None else scenario
     model = Peripheral(spec)
     for stimulus in scenario.get("initial", []):
         model.stimulate(stimulus["ref"], stimulus["value"], stimulus["basis"])
-    origins = {item["origin"] for item in spec["evidence"]}
-    model_origin = "automatic_extraction_reviewed" if origins == {"model_extraction"} else "hand_authored_reviewed"
     result = {"status": "ERROR", "driver": Path(driver).name,
               "model_origin": model_origin, "scenario": scenario["id"],
               "scope": spec["scope"], "driver_sha256": digest(driver),
@@ -99,6 +109,7 @@ def run_fixture(driver, *, spec=None, scenario=None):
               "schema_sha256": digest(ROOT / "schema/devicespec-v1.schema.json"),
               "spec_sha256": hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest(),
               "scenario_sha256": hashlib.sha256(json.dumps(scenario, sort_keys=True).encode()).hexdigest(),
+              "review_bundle": bundle_identity,
               "stimuli": model.stimuli, "trace": model.trace, "assertions": [], "violations": []}
     try:
         with tempfile.TemporaryDirectory(prefix="ghostchip-") as temp:
@@ -152,16 +163,21 @@ def run_fixture(driver, *, spec=None, scenario=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/proof.json")
-    parser.add_argument("--spec", type=Path, help="Reviewed DeviceSpec to execute instead of the hand-authored baseline")
+    parser.add_argument("--spec", type=Path, help="Explicit raw/manual DeviceSpec; extracted reviewed models require --bundle")
+    parser.add_argument("--bundle", type=Path, help="Verified reviewed-bundle envelope for extracted execution")
     parser.add_argument("--scenario", type=Path, help="Scenario to execute instead of the BME280 baseline")
     parser.add_argument("--drivers", type=Path, nargs=2, metavar=("BUGGY", "FIXED"),
                         help="Two trusted C fixtures expected to produce FAIL then PASS")
     args = parser.parse_args()
+    if args.spec and args.bundle:
+        parser.error("--spec and --bundle are mutually exclusive")
     spec = load(args.spec) if args.spec else None
+    bundle = load_review_bundle(args.bundle) if args.bundle else None
     scenario = json.loads(args.scenario.read_text()) if args.scenario else None
     drivers = ([path.resolve() for path in args.drivers] if args.drivers else
                [ROOT / "examples" / f"bme280_{name}.c" for name in ("buggy", "fixed")])
-    results = [run_fixture(driver, spec=spec, scenario=scenario) for driver in drivers]
+    results = [run_fixture(driver, spec=spec, scenario=scenario, review_bundle=bundle,
+                           model_origin="explicit_raw_manual") for driver in drivers]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(results, indent=2) + "\n")
     for result in results:

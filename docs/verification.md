@@ -1,50 +1,58 @@
-# Verification record — 2026-09-28
+# Verification record — Stage 4
 
-Environment: existing Ubuntu WSL, Python 3.12.3, GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1), jsonschema 4.10.3, pypdf 6.1.1 and cryptography 50.0.1. No compiler or OS installation was needed.
+Environment: Ubuntu WSL, Python 3.12.3, GCC 13.3.0 targeting `x86_64-linux-gnu`, jsonschema 4.10.3, pypdf 6.1.1 and cryptography 50.0.1. Every real-driver run creates a fresh immutable staged source tree and executable.
 
-## Local regression suite
+## Correctness gate
 
-Command: `python3 -m unittest discover -s tests -v`
+- **F1:** the runner reconstructs candidate + review + extraction request + evidence anchors and compares any saved reviewed spec before compilation. Changed semantics, request, anchor, identity table, or missing bundle approval reject. Raw models require an explicit manual/unreviewed origin and cannot inherit an extracted-review badge.
+- **F2:** missing ADXL345 page-19 overview evidence now emits an unresolved `interrupt_clear` record and no rule, rather than dereferencing a missing match.
+- **F3:** the ADXL Scenario now seeds `fifo_mode=1` before five FIFO entries and then enters bypass. Buggy/fixed remains FAIL/PASS; removing the interrupt rule still makes buggy PASS and removing the FIFO rule still makes fixed FAIL.
 
-Result after Stage 3: **39 tests passed**, including both local source PDF checksum/live re-extraction paths. The original BME280 tests remain present and green. One parameterized test covers **23 malformed-spec mutations**; another covers six out-of-model accesses. The reported 39 test methods should not be confused with either proof's two scenario assertions.
+## Bosch upstream and build identity
 
-Covered: all prior runtime/proof cases plus source-hash rejection, both golden candidate hashes, layout-whitespace tolerance, three missing-prose negative extraction paths, board-address alternatives, page/section rule anchors, pending execution refusal, review status-only enforcement, semantic-change review invalidation, selective read side effects, guarded FIFO clearing, bounded pre-run stimuli, two reviewed extracted FAIL/PASS proofs, rule-removal falsification, and an execution-core identifier scan.
+Repository `https://github.com/boschsensortec/BME280_SensorAPI`, commit `c90d419492e26dd95586598a794e65eb2760753a`, source banner v3.5.1, BSD-3-Clause. Vendored files have `modifications: []` and are checked before and after every build:
 
-## ADXL345 extracted-model proof
+| File | SHA-256 |
+|---|---|
+| `bme280.c` | `7de1e7d3082b85e90db1daa34573ba77553a7caf44e06e216de5216b7ed4fa12` |
+| `bme280.h` | `6f144510e103f0ab1a24244a71f7ff8ab7f23147b4899aa7bfd0f526062d2163` |
+| `bme280_defs.h` | `541bbd32498b8603bc8fe8eafac26b15d09fb032d37448ca88e7aa398d6a0769` |
+| `LICENSE` | `8c966978a9f67992e824d0b76381eab42f240c0049881f7bf2b46c2c093191aa` |
 
-The pinned official Rev. G source hash is `87ae2212498c35a6759d8732adee0ec9b9d8d60fa95688bc5904f1f07ceb8ff6`; the pending candidate hash is `5700e02cd260997e5a498fa66950c5b2a3e852f3e6c64940a25df6cb4c757e74`. The reviewed sorted-JSON execution hash is `543a104992aefd7fea40bd9ae392c5f88d0ff352b7f7fd9ee50677ed15c4744e`; Scenario hash is `d2b4f45f1afa94cf2e16a9d0d1d37d74ffbfa9f03a8e22930bcdfb738fbada5d`.
+Build flags are `-std=c11 -Wall -Wextra -Werror -O0 -MMD`. No macro definitions alter upstream behavior. Compiler dependency output must include `bme280.h`, `bme280_defs.h`, and the GhostChip adapter header. The result records compiler path/hash/version/target, exact command, source/header closure, adapter, entrypoint and executable hashes. Deliberately changed upstream source or headers reject before compilation.
 
-The buggy fixture exits 2 after three HAL events and is **FAIL (1/2)**. The fixed fixture exits 0 after two HAL events and is **PASS (2/2)**. Both report `model_origin: automatic_extraction_reviewed`. The failed single-tap assertion links to extracted evidence on pages 19 and 27; FIFO clearing links to pages 21 and 28. Removing the interrupt-clear rule makes the buggy fixture PASS; removing the FIFO rule makes the fixed fixture fail with occupancy still five.
+## Mandatory real-driver cases
 
-## Extracted-model proof
+| Case | Result | Observed upstream result | Callback evidence |
+|---|---|---|---|
+| `init_ok` | PASS | `api.init=0`, interface `0` | read D0/1; write E0/1; delay 2000 us; read F3/1; read 88/26; read E1/7 |
+| `wrong_chip_id` | PASS | `api.init=-4`, interface `0` | only read D0/1; no reset, delay or calibration |
+| `chip_id_bus_error` | PASS | `api.init=-2`, interface `-1` | injected first read D0 failure; no later callback |
+| `calibration_bus_error` | PASS | `api.init=-2`, interface `-1` | reset/delay/status complete; injected read 88/26 failure; no E1 read |
+| `humidity_x4` | PASS | init `0`, configure `0` | real public API reads F4, writes F2=3, reads and rewrites F4; effective humidity becomes 3 |
+| `humidity_x4_no_latch` | expected FAIL | init `0`, configure `0` | same pristine driver; explicitly UNREVIEWED model lacks latch; effective-state assertion alone fails |
+| `reset_after_configuration` | PASS | init/configure/reset all `0` | second real E0 reset + delay/status; pending/effective humidity return to 0; instance NVM preserved |
 
-Commands: `python3 -m ghostchip.extract ... --review ...` followed by `python3 -m ghostchip.proof --spec artifacts/bme280-extraction/reviewed.devicespec.json`.
+The nontrivial calibration image is classified `deterministic_test_instance`, not extracted data. Independent expected parses include `dig_t1=513`, `dig_t2=1027`, `dig_h1=26`, `dig_h2=26213`, `dig_h4=1673`, `dig_h5=1702`, and `dig_h6=107`.
 
-Result: the pending candidate hash is `5fe6b9f5cdb727dca13ca6a3831e52057ead996dc5cf1bbaaf2194c49a896731`. Review supplies evidence statuses only. The reviewed model's sorted-JSON execution hash is `8e51aeacb5a712185662f7e995ff38f69a2fef8297b00926e3fd967ce10b4c40`.
+## Falsification and negative controls
 
-The buggy C fixture is **FAIL (1/2)** and the fixed fixture is **PASS (2/2)** with `model_origin: automatic_extraction_reviewed`. The failure carries extracted evidence from PDF pages 27/28, sections 5.4.3/5.4.5. Both runs use the same extracted model and existing Scenario. Removing only the extracted rule makes the fixed fixture fail, which proves the PASS is not coming from register readback or the manual BME280 fixture.
+- Stale, changed or absent reviewed bundles cannot compile as approved.
+- Missing observations, malformed Scenarios, unsupported lengths/ranges/writes, missing instance parameters, early settle access, unexpected callbacks/process exits, and unmodeled bytes become ERROR.
+- FaultPlan failures are injected before a complete callback, cause no read/write effects, fire exactly once, and yield real upstream `-2`; OUT_OF_MODEL is never converted into a bus failure.
+- Generic synthetic tests cover 26/7-style incrementing reads, 1999 + 1 us partial delay, repeat settle operations, fresh-run isolation, and instance completeness without Bosch identifiers or addresses in runtime/schema/validator.
+- The original BME280 and corrected ADXL345 FAIL/PASS proofs remain intact, including causal rule-removal checks.
 
-## Deterministic proof
+The final local suite ran **58/58 test methods passed** with both pinned PDFs present.
 
-Command: `python3 -m ghostchip.proof`
+## Extraction and clean-source reproduction
 
-| Fixture | C exit | HAL events | Pending code | Effective code | Scenario result |
-|---|---:|---:|---:|---:|---|
-| buggy | 0 | 4 | 3 | 0 | FAIL: 1/2 assertions |
-| fixed | 0 | 4 | 3 | 3 | PASS: 2/2 assertions |
+The checked-in Stage 4 golden fragments and the full pinned Bosch PDF independently reproduce candidate SHA-256 `251d44cd1a12b75a9b7b85ba6e74a772f22dbaa6bc50294a7c6ecb6dde6ba189`. The full-PDF path is optional in a source-only copy and skips only when the ignored vendor PDF is absent.
 
-Both use the same model hash `fc3b0393a90e5608ec94955cd91948e837fb5b5df66735aeddad85aa1bcbe4f4` and scenario hash `b860ff9fdecb260e4261032bf26b2cd3842d5633c02332c8346b8611447a322a`. These are SHA-256 hashes of sorted-key JSON serialization used by the runner, not hashes of the pretty-printed fixture files. Source PDF hashes instead cover original PDF bytes.
+`python3 scripts/verify_clean.py` copies source without `.git`, caches, virtual environments, artifacts or PDFs; runs the entire suite; rebuilds the original proof; then rebuilds and runs all seven real-driver cases. The clean copy produced **54 passes and four documented optional-PDF skips** across 58 test methods, followed by the expected legacy FAIL/PASS and all mandatory Bosch case outcomes. No cached executable or generated model is required.
 
-The full live trace is saved in `artifacts/proof.json`. It includes before/after register and internal state, operation order, triggered rule ids, returned read values, evidence and code/schema hashes. Neither driver receives its expected verdict from the harness.
+## Claim boundary
 
-## Clean-source reproduction
+Defensible: **GhostChip compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual hardware callbacks to a reviewed, bounded virtual peripheral derived from the datasheet. We demonstrate real initialization, read-dependent branching, communication-error propagation and humidity latching, using explicit test calibration bytes and a scoped reset-settling model.**
 
-Command: `python3 scripts/verify_clean.py`
-
-Result: reproduction passed from a separate temporary source copy, excluding `.git`, caches, previous artifacts, both virtual environments and downloaded PDFs. The suite ran 39 test methods: 36 passed and three optional local-PDF checks were explicitly skipped. Both golden extractors still drove their compiled FAIL → PASS tests, and the default BME280 proof rebuilt and produced FAIL → PASS again.
-
-This checks path independence and absence of cached-build dependencies using the same installed WSL toolchain. It is not a fresh operating-system installation, a Git clone test, a cross-platform certification or a hosted deployment check. No commit/remote was created.
-
-## Unverified boundaries
-
-No physical BME280/ADXL345 comparison, arbitrary-datasheet/probabilistic extraction, independent vendor-driver adaptation, measurement/timing simulation, browser flow or hostile-code sandbox validation has occurred. Evidence acceptance and board/scope selection remain manual. Those remain future gates, not implied by these green tests.
+Not established: arbitrary datasheet comprehension, arbitrary driver compatibility, physical/silicon equivalence, measurement or compensation behavior, general MCU emulation, or a real Bosch driver bug.

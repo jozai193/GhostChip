@@ -1,0 +1,18 @@
+{
+  "schema_version": "device-instance-v1",
+  "provenance": {
+    "classification": "deterministic_test_instance",
+    "basis": "Nontrivial synthetic device-individual bytes selected for parser verification; not extracted calibration defaults."
+  },
+  "parameters": {
+    "calib_88": 1, "calib_89": 2, "calib_8a": 3, "calib_8b": 4,
+    "calib_8c": 5, "calib_8d": 6, "calib_8e": 7, "calib_8f": 8,
+    "calib_90": 9, "calib_91": 10, "calib_92": 11, "calib_93": 12,
+    "calib_94": 13, "calib_95": 14, "calib_96": 15, "calib_97": 16,
+    "calib_98": 17, "calib_99": 18, "calib_9a": 19, "calib_9b": 20,
+    "calib_9c": 21, "calib_9d": 22, "calib_9e": 23, "calib_9f": 24,
+    "calib_a0": 25, "calib_a1": 26,
+    "calib_e1": 101, "calib_e2": 102, "calib_e3": 103, "calib_e4": 104,
+    "calib_e5": 105, "calib_e6": 106, "calib_e7": 107
+  }
+}

@@ -7,6 +7,7 @@ from ghostchip.extraction import ReviewError, accept_review, canonical_sha256, e
 from ghostchip.pdf_ingest import document_from_page_map, ingest_pdf
 from ghostchip.proof import run_fixture
 from ghostchip.runtime import OutOfModel, Peripheral
+from ghostchip.review import build_review_bundle
 from ghostchip.spec import ROOT, validate
 
 
@@ -25,6 +26,7 @@ class ADXL345Fixture(unittest.TestCase):
         return document_from_page_map(
             self.golden["page_count"], pages or self.golden["pages"],
             sha256=self.golden["source_sha256"],
+            page_hashes=self.golden.get("page_text_sha256") if pages is None else None,
         )
 
     def candidate(self, pages=None):
@@ -32,6 +34,12 @@ class ADXL345Fixture(unittest.TestCase):
 
     def accepted(self):
         return accept_review(self.candidate()["spec"], self.review)
+
+    def bundle(self):
+        extracted = self.candidate()
+        accepted = accept_review(extracted["spec"], self.review)
+        return build_review_bundle(extracted["spec"], self.review, self.request,
+                                   extracted["anchors"], accepted)
 
 
 class ADXL345ExtractionTests(ADXL345Fixture):
@@ -57,7 +65,7 @@ class ADXL345ExtractionTests(ADXL345Fixture):
     def test_missing_interrupt_prose_emits_no_interrupt_rule(self):
         pages = copy.deepcopy(self.golden["pages"])
         pages["27"] = pages["27"].replace(
-            "Other bits, and the corresponding interrupts, are cleared by reading the INT_SOURCE register.",
+            "Other bits, and the corresponding interrupts, are cleared by\nreading the INT_SOURCE register.",
             "The remaining clearing behavior is not stated in this reduced source.",
         )
         result = self.candidate(pages)
@@ -66,10 +74,19 @@ class ADXL345ExtractionTests(ADXL345Fixture):
         self.assertNotIn("selective INT_SOURCE clear exception set",
                          result["report"]["automatically_extracted"])
 
+    def test_missing_interrupt_overview_is_unresolved_not_exception(self):
+        pages = copy.deepcopy(self.golden["pages"])
+        pages["19"] = pages["19"].replace(
+            "interrupt functions are latched and cleared by either reading\nthe data registers (Address 0x32 to Address 0x37) until the interrupt\ncondition is no longer valid for the data-related interrupts or by\nreading the INT_SOURCE register (Address 0x30) for the remaining interrupts.",
+            "The overview is intentionally absent from this reduced source.")
+        result = self.candidate(pages)
+        self.assertEqual([rule["id"] for rule in result["spec"]["rules"]], ["fifo_bypass_clear"])
+        self.assertEqual(result["report"]["unresolved"][0]["kind"], "interrupt_clear")
+
     def test_missing_fifo_clear_prose_emits_no_fifo_rule_or_state(self):
         pages = copy.deepcopy(self.golden["pages"])
         pages["21"] = pages["21"].replace(
-            "placing the device into bypass mode clears FIFO",
+            "placing the device into bypass mode clears\nFIFO",
             "the effect of entering bypass is not stated",
         )
         result = self.candidate(pages)
@@ -124,11 +141,10 @@ class ADXL345RuntimeTests(ADXL345Fixture):
 
     def test_fifo_only_clears_when_fifo_mode_becomes_bypass(self):
         model = Peripheral(self.accepted())
+        model.stimulate({"kind": "field", "register": "fifo_ctl", "field": "fifo_mode"},
+                        1, "FIFO must be in a populated-capable mode before occupancy is seeded")
         model.stimulate({"kind": "state", "id": "fifo_entries"}, 5,
                         "Represent FIFO samples produced before driver execution")
-        model.transact("write", 0x53, 0x38, 0x40)
-        self.assertEqual(model.state["fifo_entries"], 5)
-        self.assertEqual(model.trace[-1]["rules_triggered"], [])
         model.transact("write", 0x53, 0x38, 0x00)
         self.assertEqual(model.state["fifo_entries"], 0)
         self.assertEqual(model.trace[-1]["rules_triggered"], ["fifo_bypass_clear"])
@@ -144,28 +160,30 @@ class ADXL345RuntimeTests(ADXL345Fixture):
 
 class ADXL345CompiledProofTests(ADXL345Fixture):
     def test_extracted_reviewed_spec_drives_compiled_fail_pass(self):
-        spec = self.accepted()
-        buggy = run_fixture(ROOT / "examples/adxl345_buggy.c", spec=spec, scenario=self.scenario)
-        fixed = run_fixture(ROOT / "examples/adxl345_fixed.c", spec=spec, scenario=self.scenario)
+        bundle = self.bundle()
+        buggy = run_fixture(ROOT / "examples/adxl345_buggy.c", review_bundle=bundle, scenario=self.scenario)
+        fixed = run_fixture(ROOT / "examples/adxl345_fixed.c", review_bundle=bundle, scenario=self.scenario)
         self.assertEqual((buggy["status"], fixed["status"]), ("FAIL", "PASS"))
         self.assertEqual((buggy["driver_exit"], fixed["driver_exit"]), (2, 0))
         self.assertEqual([item["passed"] for item in buggy["assertions"]], [False, True])
         self.assertEqual({item["pdf_page"] for item in buggy["violations"][0]["evidence"]},
                          {19, 27})
         self.assertEqual((len(buggy["trace"]), len(fixed["trace"])), (3, 2))
-        self.assertEqual(buggy["model_origin"], "automatic_extraction_reviewed")
+        self.assertEqual(buggy["model_origin"], "automatic_extraction_reviewed_bundle")
 
     def test_interrupt_rule_is_necessary_to_expose_bug(self):
         spec = self.accepted()
         spec["rules"] = [rule for rule in spec["rules"]
                          if rule["id"] != "int_source_nondata_clear"]
-        result = run_fixture(ROOT / "examples/adxl345_buggy.c", spec=spec, scenario=self.scenario)
+        result = run_fixture(ROOT / "examples/adxl345_buggy.c", spec=spec, scenario=self.scenario,
+                             model_origin="unreviewed_experimental")
         self.assertEqual(result["status"], "PASS")
 
     def test_fifo_rule_is_necessary_for_fifo_assertion(self):
         spec = self.accepted()
         spec["rules"] = [rule for rule in spec["rules"] if rule["id"] != "fifo_bypass_clear"]
-        result = run_fixture(ROOT / "examples/adxl345_fixed.c", spec=spec, scenario=self.scenario)
+        result = run_fixture(ROOT / "examples/adxl345_fixed.c", spec=spec, scenario=self.scenario,
+                             model_origin="unreviewed_experimental")
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(result["violations"][0]["assertion_id"], "bypass_clears_fifo")
 

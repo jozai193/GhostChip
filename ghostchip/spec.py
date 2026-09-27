@@ -5,11 +5,17 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = json.loads((ROOT / "schema/devicespec-v1.schema.json").read_text())
+SCHEMAS = {
+    "1.0.0": json.loads((ROOT / "schema/devicespec-v1.schema.json").read_text()),
+    "1.1.0": json.loads((ROOT / "schema/devicespec-v1.1.schema.json").read_text()),
+}
 
 
 def validate(spec):
-    Draft202012Validator(SCHEMA).validate(spec)
+    version = spec.get("schema_version") if isinstance(spec, dict) else None
+    if version not in SCHEMAS:
+        raise ValueError("Unsupported DeviceSpec version")
+    Draft202012Validator(SCHEMAS[version]).validate(spec)
 
     def integer_representation(value, key=None):
         # JSON Schema accepts 3.0 as an integer; bit operations require true ints.
@@ -37,12 +43,13 @@ def validate(spec):
     evidence = indexed(spec["evidence"], "evidence")
     regs = indexed(spec["registers"], "register")
     states = indexed(spec["state"], "state")
+    parameters = indexed(spec.get("parameters", []), "parameter")
     indexed(spec["rules"], "rule")
     require(len({r["address"] for r in regs.values()}) == len(regs), "Duplicate address")
     for e in evidence.values():
         require(e["source_id"] in sources, "Unknown evidence source")
         require(e["pdf_page"] <= sources[e["source_id"]]["page_count"], "Evidence page out of range")
-    for item in [*regs.values(), *states.values(), *spec["rules"]]:
+    for item in [*regs.values(), *states.values(), *spec["rules"], *parameters.values()]:
         require(all(e in evidence for e in item["evidence"]), "Unknown evidence id")
     for r in regs.values():
         fields = indexed(r["fields"], "field")
@@ -66,6 +73,30 @@ def validate(spec):
 
     for s in states.values():
         require(s["reset"] < 1 << s["width"], "State reset exceeds width")
+    if version == "1.1.0":
+        require(len({p["address"] for p in parameters.values()}) == len(parameters),
+                "Duplicate parameter address")
+        for p in parameters.values():
+            require(p["address"] in {r["address"] for r in regs.values()},
+                    "Parameter address is not a modeled register")
+        used_parameters = set()
+        for r in regs.values():
+            if isinstance(r["reset"], dict):
+                parameter = r["reset"]["parameter"]
+                require(parameter in parameters, "Unknown register reset parameter")
+                require(parameters[parameter]["address"] == r["address"],
+                        "Reset parameter address does not match register")
+                used_parameters.add(parameter)
+        require(used_parameters == set(parameters), "Every parameter must initialize exactly one register")
+        maximum = spec["transport"]["max_read_length"]
+        for read_range in spec["transport"]["incrementing_read_ranges"]:
+            require(read_range["length"] <= maximum, "Read range exceeds transport maximum")
+            require(read_range["start"] + read_range["length"] <= 256,
+                    "Incrementing read range exceeds address space")
+            require(all(address in {r["address"] for r in regs.values()}
+                        for address in range(read_range["start"],
+                                             read_range["start"] + read_range["length"])),
+                    "Incrementing read range contains unmodeled bytes")
     for c in spec["scope"]["write_constraints"]:
         require(c["register"] in regs, "Unknown constrained register")
         require(c["equals"] & ~c["mask"] == 0, "Constraint value outside mask")

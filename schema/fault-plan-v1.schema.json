@@ -1,0 +1,22 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"urn:ghostchip:fault-plan:1",
+  "type":"object",
+  "additionalProperties":false,
+  "properties":{
+    "schema_version":{"const":"fault-plan-v1"},
+    "faults":{"type":"array","maxItems":16,"items":{
+      "type":"object","additionalProperties":false,
+      "properties":{
+        "id":{"type":"string","pattern":"^[a-z][a-z0-9_]*$"},
+        "operation":{"enum":["read","write"]},
+        "device_address":{"type":"integer","minimum":8,"maximum":119},
+        "register_address":{"type":"integer","minimum":0,"maximum":255},
+        "occurrence":{"type":"integer","minimum":1,"maximum":128},
+        "callback_status":{"type":"integer","minimum":-128,"maximum":-1}
+      },
+      "required":["id","operation","device_address","register_address","occurrence","callback_status"]
+    }}
+  },
+  "required":["schema_version","faults"]
+}

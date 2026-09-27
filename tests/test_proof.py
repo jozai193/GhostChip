@@ -150,7 +150,8 @@ class IntegrationTests(unittest.TestCase):
     def test_removed_latch_cannot_pass_fixed_driver(self):
         spec = load(FIXTURE / "devicespec.json")
         spec["rules"] = []
-        result = run_fixture(ROOT / "examples/bme280_fixed.c",spec=spec)
+        result = run_fixture(ROOT / "examples/bme280_fixed.c",spec=spec,
+                             model_origin="unreviewed_experimental")
         self.assertEqual(result["status"],"FAIL")
 
     def test_noop_and_wrong_humidity_cannot_pass(self):

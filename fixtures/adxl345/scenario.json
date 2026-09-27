@@ -13,6 +13,15 @@
     },
     {
       "ref": {
+        "kind": "field",
+        "register": "fifo_ctl",
+        "field": "fifo_mode"
+      },
+      "value": 1,
+      "basis": "Test intent: FIFO is populated in FIFO mode before the driver selects bypass"
+    },
+    {
+      "ref": {
         "kind": "state",
         "id": "fifo_entries"
       },

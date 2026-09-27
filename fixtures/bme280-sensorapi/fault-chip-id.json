@@ -1,0 +1,1 @@
+{"schema_version":"fault-plan-v1","faults":[{"id":"chip_id_read_failure","operation":"read","device_address":118,"register_address":208,"occurrence":1,"callback_status":-1}]}

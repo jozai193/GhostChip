@@ -14,6 +14,7 @@ from ghostchip.extraction import (
 from ghostchip.pdf_ingest import IngestionError, document_from_page_map, ingest_pdf
 from ghostchip.proof import FIXTURE, run_fixture
 from ghostchip.runtime import OutOfModel, Peripheral
+from ghostchip.review import build_review_bundle
 from ghostchip.spec import ROOT, validate
 
 
@@ -28,6 +29,7 @@ class ExtractionFixture(unittest.TestCase):
         return document_from_page_map(
             self.golden["page_count"], pages or self.golden["pages"],
             sha256=self.golden["source_sha256"],
+            page_hashes=self.golden.get("page_text_sha256") if pages is None else None,
         )
 
     def candidate(self, pages=None):
@@ -73,7 +75,7 @@ class CandidateExtractionTests(ExtractionFixture):
     def test_missing_behavior_is_reported_not_invented(self):
         pages = copy.deepcopy(self.golden["pages"])
         pages["27"] = pages["27"].replace(
-            'Changes to this register only become effective after a write operation to "ctrl_meas".',
+            'Changes to this\nregister only become effective after a write operation to "ctrl_meas".',
             "The effect timing is not stated in this reduced source.",
         )
         result = self.candidate(pages)
@@ -141,15 +143,43 @@ class ReviewBoundaryTests(ExtractionFixture):
         with self.assertRaisesRegex(ReviewError, "not semantic overrides"):
             accept_review(self.pending, review)
 
+    def test_changed_reviewed_spec_is_rejected_before_compilation(self):
+        extracted = self.candidate()
+        accepted = accept_review(extracted["spec"], self.review)
+        changed = copy.deepcopy(accepted)
+        changed["rules"][0]["on"]["register"] = "ctrl_hum"
+        with self.assertRaisesRegex(ReviewError, "Saved reviewed spec differs"):
+            build_review_bundle(extracted["spec"], self.review, self.request,
+                                extracted["anchors"], changed)
+
+    def test_changed_request_anchor_or_missing_review_cannot_execute_as_reviewed(self):
+        extracted = self.candidate()
+        accepted = accept_review(extracted["spec"], self.review)
+        changed_request = copy.deepcopy(self.request)
+        changed_request["device_name"] += " changed"
+        with self.assertRaisesRegex(ReviewError, "request hash"):
+            build_review_bundle(extracted["spec"], self.review, changed_request,
+                                extracted["anchors"], accepted)
+        changed_anchors = copy.deepcopy(extracted["anchors"])
+        changed_anchors[0]["page_text_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ReviewError, "anchor hash"):
+            build_review_bundle(extracted["spec"], self.review, self.request,
+                                changed_anchors, accepted)
+        with self.assertRaisesRegex(ValueError, "explicit non-bundle"):
+            run_fixture(ROOT / "examples/bme280_fixed.c", spec=accepted)
+
 
 class ExtractedProofTests(ExtractionFixture):
     def test_extracted_reviewed_spec_drives_compiled_fail_pass(self):
-        accepted = accept_review(self.candidate()["spec"], self.review)
-        buggy = run_fixture(ROOT / "examples/bme280_buggy.c", spec=accepted)
-        fixed = run_fixture(ROOT / "examples/bme280_fixed.c", spec=accepted)
+        extracted = self.candidate()
+        accepted = accept_review(extracted["spec"], self.review)
+        bundle = build_review_bundle(extracted["spec"], self.review, self.request,
+                                     extracted["anchors"], accepted)
+        buggy = run_fixture(ROOT / "examples/bme280_buggy.c", review_bundle=bundle)
+        fixed = run_fixture(ROOT / "examples/bme280_fixed.c", review_bundle=bundle)
         self.assertEqual((buggy["status"], fixed["status"]), ("FAIL", "PASS"))
         self.assertEqual((buggy["model_origin"], fixed["model_origin"]),
-                         ("automatic_extraction_reviewed", "automatic_extraction_reviewed"))
+                         ("automatic_extraction_reviewed_bundle", "automatic_extraction_reviewed_bundle"))
         self.assertEqual(buggy["spec_sha256"], fixed["spec_sha256"])
         self.assertEqual(buggy["violations"][0]["evidence"][0]["origin"], "model_extraction")
         self.assertEqual({item["pdf_page"] for item in buggy["violations"][0]["evidence"]}, {27, 28})
@@ -157,7 +187,8 @@ class ExtractedProofTests(ExtractionFixture):
     def test_extracted_rule_is_necessary_for_pass(self):
         accepted = accept_review(self.candidate()["spec"], self.review)
         accepted["rules"] = []
-        result = run_fixture(ROOT / "examples/bme280_fixed.c", spec=accepted)
+        result = run_fixture(ROOT / "examples/bme280_fixed.c", spec=accepted,
+                             model_origin="unreviewed_experimental")
         self.assertEqual(result["status"], "FAIL")
 
 

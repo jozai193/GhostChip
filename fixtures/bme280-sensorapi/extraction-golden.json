@@ -1,0 +1,22 @@
+{
+  "source_sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
+  "page_count": 60,
+  "page_text_sha256": {
+    "8": "dcd6be069ab8cf1503acca271d2cb8b5dcb6bf85e65e07b407b7408d3034a25a",
+    "24": "c9a8389307c2bfc719e33b40d1c4ae5b072b80728ab68470b2508d104f303053",
+    "25": "eb3e5812ed0c3a5a87b351f6e0c08eca629223cafeeb211b3d16a20de017bb05",
+    "27": "34ecf54dc51625baf0294e08bf35920b4f8a093241bd10622945810e007dc4c2",
+    "28": "21e05650588ae80c94eb86d6af86bd54cf7ff42af1e036350df4fca24db97ea7",
+    "32": "f7835985fa3bff385024d6fba6b4107ae4786151410fd96f161415d8481e416b",
+    "33": "3800475d32b8a4e1a86b74433f4b951b4a015bbda89b24f0422d54913ba5b2e7"
+  },
+  "pages": {
+    "8": "Table 1 Start-up time tstartup Time to first communication maximum 2 ms.",
+    "24": "Calibration registers named calib00...calib41 are stored at memory addresses 0x88...0xA1 and 0xE1...0xE7. 0x88 dig_T1; 0xA1 dig_H1; 0xE1 dig_H2.",
+    "25": "Calibration table continuation: 0xE7 dig_H6 signed char.",
+    "27": "Register map: chip ID 0xD0; reset 0xE0; status 0xF3; ctrl_hum 0xF2; ctrl_meas 0xF4. If 0xB6 is written to reset, the complete power-on-reset procedure runs. Other values have no effect. reset reads zero. Changes to ctrl_hum become effective after a write to ctrl_meas.",
+    "28": "The status register includes im_update. The ctrl_meas register needs to be written after changing ctrl_hum for changes to become effective.",
+    "32": "multiple byte read using a single register address which is auto-incremented",
+    "33": "I2C multiple byte write not auto-incremented; address and data pairs are used."
+  }
+}

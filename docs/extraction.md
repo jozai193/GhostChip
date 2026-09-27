@@ -31,7 +31,9 @@ The resulting rule has evidence on PDF/printed page 27, section 5.4.3, and page 
 
 ## Review integrity
 
-The candidate validates while all evidence is `pending`, but the runtime refuses to execute it. `extraction-review.json` binds the source SHA-256 and canonical candidate SHA-256 and lists evidence decisions only. Applying it changes only review statuses. Unknown semantic keys are rejected, and any changed register, field, state, rule or evidence invalidates the candidate hash.
+The candidate validates while all evidence is `pending`, but the runtime refuses to execute it. `extraction-review.json` binds the source, canonical candidate, extraction request and evidence-anchor hashes and lists evidence decisions only. Applying it changes only review statuses. The runner reconstructs this bundle at execution time and requires any saved reviewed spec to equal that reconstruction. Unknown semantic keys are rejected, and any changed register, field, state, rule, request, anchor or evidence invalidates approval. Extraction writes atomic files and a content-addressed reviewed-bundle envelope; an old reviewed file is never treated as proof that a newer candidate was accepted.
+
+The Stage 4 BME280 SensorAPI adapter emits a separate DeviceSpec 1.1 candidate for the bounded initialization/configuration slice. Register/reset/calibration/read categories are evidence-gated against pinned pages. The 2000 us settle boundary is visibly classified as a reviewed abstraction, and calibration values remain outside extraction in a separate deterministic test instance.
 
 The checked-in golden fixture contains only the small reviewed page fragments needed for offline regression. The optional full PDF integration test re-extracts the source and requires the same canonical candidate hash. The full PDF itself remains ignored vendor material.
 

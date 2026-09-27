@@ -1,0 +1,45 @@
+{
+  "schema_version": "real-driver-scenario-v1",
+  "id": "wrong_chip_id",
+  "action": "init",
+  "initial": [
+    {
+      "ref": {
+        "kind": "field",
+        "register": "chip_id",
+        "field": "value"
+      },
+      "value": 88,
+      "basis": "Explicit wrong-identity stimulus"
+    }
+  ],
+  "required_observations": [
+    "api.init",
+    "interface.result"
+  ],
+  "assertions": [
+    {
+      "id": "wrong_id_branch",
+      "source": "observation",
+      "observation": "api.init",
+      "equals": -4,
+      "basis": "Actual upstream device-not-found result"
+    },
+    {
+      "id": "callback_succeeded",
+      "source": "observation",
+      "observation": "interface.result",
+      "equals": 0,
+      "basis": "Identity mismatch is not a bus error"
+    }
+  ],
+  "expected_callbacks": [
+    {
+      "operation": "read",
+      "register_address": 208,
+      "length": 1,
+      "status": 0
+    }
+  ],
+  "expected_faults": []
+}

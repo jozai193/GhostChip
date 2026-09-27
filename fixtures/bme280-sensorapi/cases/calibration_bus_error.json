@@ -1,0 +1,60 @@
+{
+  "schema_version": "real-driver-scenario-v1",
+  "id": "calibration_bus_error",
+  "action": "init",
+  "initial": [],
+  "required_observations": [
+    "api.init",
+    "interface.result"
+  ],
+  "assertions": [
+    {
+      "id": "communication_error",
+      "source": "observation",
+      "observation": "api.init",
+      "equals": -2,
+      "basis": "Actual upstream communication-failure result"
+    },
+    {
+      "id": "callback_error",
+      "source": "observation",
+      "observation": "interface.result",
+      "equals": -1,
+      "basis": "Calibration callback status is preserved"
+    }
+  ],
+  "expected_callbacks": [
+    {
+      "operation": "read",
+      "register_address": 208,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "write",
+      "register_address": 224,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "delay",
+      "duration_us": 2000,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 243,
+      "length": 1,
+      "status": 0
+    },
+    {
+      "operation": "read",
+      "register_address": 136,
+      "length": 26,
+      "status": -1
+    }
+  ],
+  "expected_faults": [
+    "calibration_read_failure"
+  ]
+}

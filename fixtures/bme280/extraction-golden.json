@@ -2,9 +2,15 @@
   "page_count": 60,
   "source_sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
   "expected_candidate_sha256": "5fe6b9f5cdb727dca13ca6a3831e52057ead996dc5cf1bbaaf2194c49a896731",
+  "page_text_sha256": {
+    "27": "34ecf54dc51625baf0294e08bf35920b4f8a093241bd10622945810e007dc4c2",
+    "28": "21e05650588ae80c94eb86d6af86bd54cf7ff42af1e036350df4fca24db97ea7",
+    "29": "3586025892f06bdf91a74f80ed777be681109278eaadbfe6e7de5e0e10eb7877",
+    "32": "f7835985fa3bff385024d6fba6b4107ae4786151410fd96f161415d8481e416b"
+  },
   "pages": {
-    "27": "Bosch Sensortec | BME280 Data sheet 27 | 60\nid 0xD0 0x60\nctrl_hum 0xF2 0x00\nctrl_meas 0xF4 0x00\n5.4.1 Register 0xD0 \"id\"\nThe \"id\" register contains the chip identification number chip_id[7:0], which is 0x60. This number can be read as soon as the device finished the power-on-reset.\n5.4.2 Register 0xE0 \"reset\"\n5.4.3 Register 0xF2 \"ctrl_hum\"\nThe \"ctrl_hum\" register sets the humidity data acquisition options of the device. Changes to this register only become effective after a write operation to \"ctrl_meas\".",
-    "28": "Bosch Sensortec | BME280 Data sheet 28 | 60\nTable 19: Register 0xF2 \"ctrl_hum\"\nName Description\nBit 2, 1, 0 osrs_h[2:0] Controls oversampling of humidity data.\n5.4.4 Register 0xF3 \"status\"\n5.4.5 Register 0xF4 \"ctrl_meas\"\nThe \"ctrl_meas\" register sets the pressure and temperature data acquisition options of the device. The register needs to be written after changing \"ctrl_hum\" for the changes to become effective.",
+    "27": "Bosch Sensortec | BME280 Data sheet 27 | 60\nid 0xD0 0x60\nctrl_hum 0xF2 0x00\nctrl_meas 0xF4 0x00\n5.4.1 Register 0xD0 \"id\"\nThe \"id\" register contains the chip identification number chip_id[7:0], which is 0x60. This number can be read as soon as the device finished the power-on-reset.\n5.4.2 Register 0xE0 \"reset\"\n5.4.3 Register 0xF2 \"ctrl_hum\"\nThe \"ctrl_hum\" register sets the humidity data acquisition options of the device. Changes to this\nregister only become effective after a write operation to \"ctrl_meas\".",
+    "28": "Bosch Sensortec | BME280 Data sheet 28 | 60\nTable 19: Register 0xF2 \"ctrl_hum\"\nName Description\nBit 2, 1, 0 osrs_h[2:0] Controls oversampling of humidity data.\n5.4.4 Register 0xF3 \"status\"\n5.4.5 Register 0xF4 \"ctrl_meas\"\nThe \"ctrl_meas\" register sets the pressure and temperature data acquisition options of the device. The\nregister needs to be written after changing \"ctrl_hum\" for the changes to become effective.",
     "29": "Bosch Sensortec | BME280 Data sheet 29 | 60\nTable 22: Register 0xF4 \"ctrl_meas\"\nName Description\nBit 7, 6, 5 osrs_t[2:0] Controls oversampling of temperature data.\nBit 4, 3, 2 osrs_p[2:0] Controls oversampling of pressure data.\nBit 1, 0 mode[1:0] Controls the sensor mode of the device.",
     "32": "Bosch Sensortec | BME280 Data sheet 32 | 60\n6.2 I2C Interface\nThe 7-bit device address is 111011x. Connecting SDO to GND results in slave address 1110110 (0x76); connecting it to VDDIO results in slave address 1110111 (0x77)."
   }

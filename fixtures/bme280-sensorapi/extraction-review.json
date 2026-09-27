@@ -1,0 +1,23 @@
+{
+  "bundle_version": "review-bundle-v1",
+  "source_sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
+  "candidate_sha256": "251d44cd1a12b75a9b7b85ba6e74a772f22dbaa6bc50294a7c6ecb6dde6ba189",
+  "request_sha256": "49ceba3bc91ef068c829e6b277039d29c3147cc81d3ea8e397a377994067d805",
+  "anchors_sha256": "c43e926a3b1c0d3af067d1240e58e8b5e2f037a196d4252bc12ca7acf81b4883",
+  "accepted_evidence": [
+    "startup_bound",
+    "calibration_bank_layout",
+    "humidity_calibration_tail",
+    "register_map_reset",
+    "status_and_control",
+    "incrementing_reads",
+    "paired_address_writes",
+    "soft_reset_settle_abstraction"
+  ],
+  "review_basis": "Checked against the pinned Bosch PDF pages 8, 24, 25, 27, 28, 32 and 33. The 2000 us observation boundary is accepted as an explicit conservative abstraction, not a claim of exact internal reset timing.",
+  "limitations": [
+    "Calibration bytes are separate synthetic device-instance data, not datasheet defaults.",
+    "Reset readiness inside the 2000 us boundary is intentionally out of model.",
+    "Only initialization and sleep-mode humidity configuration are covered."
+  ]
+}
