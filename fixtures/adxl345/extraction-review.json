@@ -1,0 +1,24 @@
+{
+  "source_sha256": "87ae2212498c35a6759d8732adee0ec9b9d8d60fa95688bc5904f1f07ceb8ff6",
+  "candidate_sha256": "5700e02cd260997e5a498fa66950c5b2a3e852f3e6c64940a25df6cb4c757e74",
+  "accepted_evidence": [
+    "register_int_source",
+    "register_int_source_reset",
+    "register_int_source_fields",
+    "register_fifo_ctl",
+    "register_fifo_ctl_reset",
+    "register_fifo_ctl_fields",
+    "int_source_nondata_clear",
+    "int_source_nondata_clear_overview",
+    "fifo_bypass_clear",
+    "fifo_bypass_clear_mode",
+    "i2c_address_options"
+  ],
+  "review_basis": "Checked against the pinned Analog Devices Rev. G PDF pages named by each evidence item. Acceptance changes review status only and supplies no register or transition semantics.",
+  "limitations": [
+    "The 0x53 address is a board-selection input; the datasheet also permits 0x1D.",
+    "The accepted model is only the requested INT_SOURCE and FIFO_CTL behavior slice.",
+    "External event generation and FIFO population are scenario stimuli, not extracted device transitions.",
+    "Extractor confidence values are uncalibrated and were not used as an acceptance threshold."
+  ]
+}

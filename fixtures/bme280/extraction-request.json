@@ -1,0 +1,33 @@
+{
+  "source_id": "bosch_bme280",
+  "source_url": "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bme280-ds002.pdf",
+  "source_sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
+  "source_revision": "Cover: 1.24, February 2024, BST-BME280-DS001-24; inner footers still say 1.23",
+  "device_name": "BME280 automatically extracted configuration slice",
+  "vendor": "Bosch Sensortec",
+  "device_address": 118,
+  "registers": [
+    "id",
+    "ctrl_hum",
+    "ctrl_meas"
+  ],
+  "rule_ids": {
+    "ctrl_hum->ctrl_meas": "humidity_latch"
+  },
+  "scope_description": "Automatically extracted post-startup humidity configuration slice; board address and sleep-only boundary are explicit review inputs.",
+  "unsupported": [
+    "startup and reset timing",
+    "measurement and compensation",
+    "forced and normal mode",
+    "SPI and multi-byte transfers",
+    "unknown registers and reserved-bit changes"
+  ],
+  "field_constraints": [
+    {
+      "register": "ctrl_meas",
+      "field": "mode",
+      "equals": 0,
+      "reason": "Measurement modes are outside this reviewed sleep-only extraction slice"
+    }
+  ]
+}

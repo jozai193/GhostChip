@@ -1,0 +1,13 @@
+{
+  "page_count": 36,
+  "source_sha256": "87ae2212498c35a6759d8732adee0ec9b9d8d60fa95688bc5904f1f07ceb8ff6",
+  "expected_candidate_sha256": "5700e02cd260997e5a498fa66950c5b2a3e852f3e6c64940a25df6cb4c757e74",
+  "pages": {
+    "17": "Data Sheet ADXL345\nSERIAL COMMUNICATIONS\nanalog.com Rev. G | 17 of 36\nWith the ALT ADDRESS pin high, the 7-bit I2C address for the device is 0x1D. With the ALT ADDRESS pin low, the alternate I2C address of 0x53 can be chosen.",
+    "19": "Data Sheet ADXL345\nINTERRUPTS\nanalog.com Rev. G | 19 of 36\nThe interrupt functions are latched and cleared by either reading the data registers (Address 0x32 to Address 0x37) until the interrupt condition is no longer valid for the data-related interrupts or by reading the INT_SOURCE register (Address 0x30) for the remaining interrupts.",
+    "21": "Data Sheet ADXL345\nFIFO\nanalog.com Rev. G | 21 of 36\nEach mode is selected by the settings of the FIFO_MODE bits (Bits[D7:D6]) in the FIFO_CTL register (Address 0x38).\nBYPASS MODE\nIn bypass mode, FIFO is not operational and, therefore, remains empty.\nTRIGGER MODE\nNote that the FIFO data should be read first because placing the device into bypass mode clears FIFO.",
+    "23": "Data Sheet ADXL345\nREGISTER MAP\nanalog.com Rev. G | 23 of 36\n0x30 48 INT_SOURCE R 00000010 Source of interrupts\n0x38 56 FIFO_CTL R/W 00000000 FIFO control",
+    "27": "Data Sheet ADXL345\nREGISTER MAP\nanalog.com Rev. G | 27 of 36\nRegister 0x30 INT_SOURCE (Read Only)\nD7 D6 D5 D4 DATA_READY SINGLE_TAP DOUBLE_TAP Activity\nD3 D2 D1 D0 Inactivity FREE_FALL Watermark Overrun\nThe DATA_READY, watermark, and overrun bits are always set if the corresponding events occur and are cleared by reading data from the DATAX, DATAY, and DATAZ registers. The DATA_READY and watermark bits may require multiple reads. Other bits, and the corresponding interrupts, are cleared by reading the INT_SOURCE register.\nRegister 0x38 FIFO_CTL (Read/Write)\nD7 D6 D5 D4 D3 D2 D1 D0 FIFO_MODE Trigger Samples",
+    "28": "Data Sheet ADXL345\nREGISTER MAP\nanalog.com Rev. G | 28 of 36\nFIFO_MODE Bits (Bits[D7:D6])\nTable 37. FIFO Modes\n0 0 Bypass FIFO is bypassed."
+  }
+}

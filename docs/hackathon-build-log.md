@@ -1,0 +1,9 @@
+# Build log
+
+| Date | Work | Commit | Prior/external material |
+|---|---|---|---|
+| 2026-09-27 IST | Architecture audit, risks, implementation plan, DeviceSpec v1, generic event runtime, original C configuration fixtures and local verification. | Working tree; no commit created. | User's supplied brief; official Bosch datasheet as source evidence; ADXL345 datasheet and Renode/Zephyr docs for research. Python standard library, jsonschema 4.10.3 (MIT), GCC and existing Ubuntu/WSL toolchain. No vendor/competitor driver code copied. |
+| 2026-09-28 IST | Bounded PDF ingestion, BME280 register/latch candidate extraction, evidence anchors, hash-bound review, CLI orchestration and extracted-spec compiled proof. | Working tree; no commit created. | Bosch PDF remains ignored vendor material. Extraction is original heuristic code using pypdf/cryptography; no external model call or copied vendor driver. Manual request/review inputs are recorded separately from generated semantics. |
+| 2026-09-28 IST | Stage 3 ADXL345 generalization: official Rev. G source pin, selective INT_SOURCE clear and FIFO bypass-clear extraction, generic scenario stimulus/exit assertions, compiled C FAIL→PASS, negative controls, golden regression and anti-hardcoding audit. | Working tree; no commit created. | Analog Devices PDF remains ignored vendor material. The source-layout adapter and C fixtures are original; no vendor driver code copied. DeviceSpec/runtime contain no ADXL-specific behavior. |
+
+The workspace was empty at intake. Git was initialized locally. No remote was configured and no publication took place. Cached Bosch source PDF is ignored by Git; its checksum and origin are retained in the model. The new C files are deliberately small original fixtures, not Bosch SDK code. Corrected driver preparation was manual. The new extracted model is automatic only within the documented request/review boundary; it is not presented as arbitrary-datasheet interpretation.

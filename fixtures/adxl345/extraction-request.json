@@ -1,0 +1,27 @@
+{
+  "extractor": "adxl345-rev-g-v1",
+  "source_id": "analog_devices_adxl345_rev_g",
+  "source_url": "https://www.analog.com/media/en/technical-documentation/data-sheets/adxl345.pdf",
+  "source_sha256": "87ae2212498c35a6759d8732adee0ec9b9d8d60fa95688bc5904f1f07ceb8ff6",
+  "source_revision": "ADXL345 Data Sheet Rev. G; official product page identifies the Rev. G data sheet; PDF metadata modified 2022-06-02",
+  "device_name": "ADXL345 automatically extracted interrupt and FIFO slice",
+  "vendor": "Analog Devices",
+  "device_address": 83,
+  "registers": [
+    "int_source",
+    "fifo_ctl"
+  ],
+  "rule_ids": {
+    "int_source_read": "int_source_nondata_clear",
+    "fifo_bypass": "fifo_bypass_clear"
+  },
+  "scope_description": "Automatically extracted INT_SOURCE read side effects and FIFO bypass clearing for single-byte I2C transactions; selected board address and bounded behavior slice are explicit review inputs.",
+  "unsupported": [
+    "generation and timing of physical interrupt events",
+    "DATA_READY, watermark, and overrun clearing through data-register reads",
+    "FIFO sample contents, pop behavior, burst transactions, and timing",
+    "interrupt pin electrical behavior and mapping",
+    "SPI transactions",
+    "registers outside INT_SOURCE and FIFO_CTL"
+  ]
+}

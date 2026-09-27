@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.venv-wsl/
+artifacts/
+tmp/
+.env
+fixtures/*/datasheet.pdf

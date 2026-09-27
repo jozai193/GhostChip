@@ -1,0 +1,44 @@
+{
+  "id": "single_tap_survives_driver_logging",
+  "checkpoint": "process_exit",
+  "initial": [
+    {
+      "ref": {
+        "kind": "field",
+        "register": "int_source",
+        "field": "single_tap"
+      },
+      "value": 1,
+      "basis": "Test intent: an external single-tap event is latched before the driver runs"
+    },
+    {
+      "ref": {
+        "kind": "state",
+        "id": "fifo_entries"
+      },
+      "value": 5,
+      "basis": "Test intent: FIFO has pre-existing samples so bypass clearing is exercised"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "driver_handles_single_tap",
+      "ref": {
+        "kind": "driver_exit"
+      },
+      "equals": 0,
+      "basis": "Driver intent: logging must not cause the handler to miss SINGLE_TAP",
+      "rule_id": "int_source_nondata_clear"
+    },
+    {
+      "id": "bypass_clears_fifo",
+      "ref": {
+        "kind": "state",
+        "id": "fifo_entries"
+      },
+      "equals": 0,
+      "basis": "Driver intent: selecting FIFO bypass must leave FIFO empty",
+      "rule_id": "fifo_bypass_clear"
+    }
+  ]
+}

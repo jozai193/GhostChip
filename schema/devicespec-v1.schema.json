@@ -1,0 +1,587 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "profile": {
+      "const": "i2c-reg8-events-v1"
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "vendor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "bus": {
+          "const": "i2c"
+        },
+        "address": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 119
+        }
+      },
+      "required": [
+        "name",
+        "vendor",
+        "bus",
+        "address"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "unsupported": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "minItems": 1
+        },
+        "write_constraints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "register": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "maxLength": 80
+              },
+              "mask": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "equals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "register",
+              "mask",
+              "equals",
+              "reason"
+            ]
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "description",
+        "unsupported",
+        "write_constraints"
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 80
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "page_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "sha256",
+          "page_count",
+          "revision"
+        ]
+      },
+      "minItems": 1
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 80
+          },
+          "source_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 80
+          },
+          "pdf_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "printed_page": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "origin": {
+            "enum": [
+              "manual_review",
+              "model_extraction"
+            ]
+          },
+          "review": {
+            "enum": [
+              "accepted",
+              "pending",
+              "rejected"
+            ]
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "pdf_page",
+          "printed_page",
+          "section",
+          "summary",
+          "origin",
+          "review",
+          "confidence"
+        ]
+      },
+      "minItems": 1
+    },
+    "registers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 80
+          },
+          "address": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "width": {
+            "const": 8
+          },
+          "reset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "access": {
+            "enum": [
+              "ro",
+              "rw"
+            ]
+          },
+          "reserved_mask": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "maxLength": 80
+                },
+                "lsb": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                }
+              },
+              "required": [
+                "id",
+                "lsb",
+                "width"
+              ]
+            },
+            "minItems": 1
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "maxLength": 80
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "id",
+          "address",
+          "width",
+          "reset",
+          "access",
+          "reserved_mask",
+          "fields",
+          "evidence"
+        ]
+      },
+      "minItems": 1
+    },
+    "state": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 80
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "reset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "maxLength": 80
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "id",
+          "width",
+          "reset",
+          "evidence"
+        ]
+      },
+      "minItems": 0
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 80
+          },
+          "on": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "event": {
+                "enum": [
+                  "after_read",
+                  "after_write"
+                ]
+              },
+              "register": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "maxLength": 80
+              }
+            },
+            "required": [
+              "event",
+              "register"
+            ]
+          },
+          "when": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "ref": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "state"
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "maxLength": 80
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "field"
+                      },
+                      "register": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "maxLength": 80
+                      },
+                      "field": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "maxLength": 80
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "register",
+                      "field"
+                    ]
+                  }
+                ]
+              },
+              "equals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            },
+            "required": [
+              "ref",
+              "equals"
+            ]
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "const": "state"
+                        },
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]*$",
+                          "maxLength": 80
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "const": "field"
+                        },
+                        "register": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]*$",
+                          "maxLength": 80
+                        },
+                        "field": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]*$",
+                          "maxLength": 80
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "register",
+                        "field"
+                      ]
+                    }
+                  ]
+                },
+                "value": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "state"
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]*$",
+                              "maxLength": 80
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "field"
+                            },
+                            "register": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]*$",
+                              "maxLength": 80
+                            },
+                            "field": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]*$",
+                              "maxLength": 80
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "register",
+                            "field"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "target",
+                "value"
+              ]
+            },
+            "minItems": 1
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "maxLength": 80
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "id",
+          "on",
+          "effects",
+          "evidence"
+        ]
+      },
+      "minItems": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile",
+    "device",
+    "scope",
+    "sources",
+    "evidence",
+    "registers",
+    "state",
+    "rules"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ghostchip:devicespec:1.0.0",
+  "title": "DeviceSpec v1 \u2014 bounded I2C byte-register events"
+}

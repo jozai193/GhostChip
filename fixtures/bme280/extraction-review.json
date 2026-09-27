@@ -1,0 +1,24 @@
+{
+  "source_sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
+  "candidate_sha256": "5fe6b9f5cdb727dca13ca6a3831e52057ead996dc5cf1bbaaf2194c49a896731",
+  "accepted_evidence": [
+    "register_id",
+    "register_id_reset",
+    "register_id_fields",
+    "register_ctrl_hum",
+    "register_ctrl_hum_reset",
+    "register_ctrl_hum_fields",
+    "register_ctrl_meas",
+    "register_ctrl_meas_reset",
+    "register_ctrl_meas_fields",
+    "humidity_latch",
+    "humidity_latch_crosscheck",
+    "i2c_address_options"
+  ],
+  "review_basis": "Checked against the pinned Bosch PDF pages named by each evidence item. Acceptance changes review status only; it supplies no register or transition semantics.",
+  "limitations": [
+    "The 0x76 address is a board-selection input; the datasheet also permits 0x77.",
+    "The accepted model is only the requested sleep-mode configuration slice, not a complete BME280 model.",
+    "Extractor confidence values are uncalibrated and were not used as an acceptance threshold."
+  ]
+}

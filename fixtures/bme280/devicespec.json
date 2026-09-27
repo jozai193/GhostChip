@@ -1,0 +1,187 @@
+{
+  "schema_version": "1.0.0",
+  "profile": "i2c-reg8-events-v1",
+  "device": {
+    "name": "BME280 configuration slice",
+    "vendor": "Bosch Sensortec",
+    "bus": "i2c",
+    "address": 118
+  },
+  "scope": {
+    "description": "After startup has completed, configure humidity while remaining in sleep mode. Single-byte HAL transactions only. Hand-authored reference model.",
+    "unsupported": [
+      "startup and reset timing",
+      "measurement and compensation",
+      "forced and normal mode",
+      "SPI and multi-byte transfers",
+      "unknown registers and reserved-bit changes"
+    ],
+    "write_constraints": [
+      {
+        "register": "ctrl_meas",
+        "mask": 3,
+        "equals": 0,
+        "reason": "Measurement modes are outside this sleep-only proof"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "bosch_bme280",
+      "url": "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bme280-ds002.pdf",
+      "sha256": "a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89",
+      "page_count": 60,
+      "revision": "Cover: 1.24, February 2024, BST-BME280-DS001-24; inner footers still say 1.23"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "memory_map",
+      "source_id": "bosch_bme280",
+      "pdf_page": 27,
+      "printed_page": "27",
+      "section": "5.3, Table 18",
+      "summary": "Control bytes start at zero; identification byte is 0x60. The map distinguishes control fields, reserved bits, and read-only identification.",
+      "origin": "manual_review",
+      "review": "accepted",
+      "confidence": null
+    },
+    {
+      "id": "humidity_latch",
+      "source_id": "bosch_bme280",
+      "pdf_page": 27,
+      "printed_page": "27",
+      "section": "5.4.3",
+      "summary": "A ctrl_hum update remains pending until ctrl_meas is written.",
+      "origin": "manual_review",
+      "review": "accepted",
+      "confidence": null
+    },
+    {
+      "id": "humidity_encoding",
+      "source_id": "bosch_bme280",
+      "pdf_page": 28,
+      "printed_page": "28",
+      "section": "5.4.3, Tables 19\u201320",
+      "summary": "Humidity control occupies bits 2:0. Encoding 3 selects fourfold oversampling.",
+      "origin": "manual_review",
+      "review": "accepted",
+      "confidence": null
+    },
+    {
+      "id": "measurement_fields",
+      "source_id": "bosch_bme280",
+      "pdf_page": 29,
+      "printed_page": "29",
+      "section": "5.4.5, Tables 22\u201325",
+      "summary": "Temperature and pressure control occupy bits 7:5 and 4:2; mode is bits 1:0, with zero selecting sleep.",
+      "origin": "manual_review",
+      "review": "accepted",
+      "confidence": null
+    }
+  ],
+  "registers": [
+    {
+      "id": "id",
+      "address": 208,
+      "width": 8,
+      "reset": 96,
+      "access": "ro",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "chip_id",
+          "lsb": 0,
+          "width": 8
+        }
+      ],
+      "evidence": [
+        "memory_map"
+      ]
+    },
+    {
+      "id": "ctrl_hum",
+      "address": 242,
+      "width": 8,
+      "reset": 0,
+      "access": "rw",
+      "reserved_mask": 248,
+      "fields": [
+        {
+          "id": "osrs_h",
+          "lsb": 0,
+          "width": 3
+        }
+      ],
+      "evidence": [
+        "memory_map",
+        "humidity_encoding"
+      ]
+    },
+    {
+      "id": "ctrl_meas",
+      "address": 244,
+      "width": 8,
+      "reset": 0,
+      "access": "rw",
+      "reserved_mask": 0,
+      "fields": [
+        {
+          "id": "mode",
+          "lsb": 0,
+          "width": 2
+        },
+        {
+          "id": "osrs_p",
+          "lsb": 2,
+          "width": 3
+        },
+        {
+          "id": "osrs_t",
+          "lsb": 5,
+          "width": 3
+        }
+      ],
+      "evidence": [
+        "memory_map",
+        "measurement_fields"
+      ]
+    }
+  ],
+  "state": [
+    {
+      "id": "effective_osrs_h",
+      "width": 3,
+      "reset": 0,
+      "evidence": [
+        "memory_map",
+        "humidity_latch"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "humidity_latch",
+      "on": {
+        "event": "after_write",
+        "register": "ctrl_meas"
+      },
+      "effects": [
+        {
+          "target": {
+            "kind": "state",
+            "id": "effective_osrs_h"
+          },
+          "value": {
+            "kind": "field",
+            "register": "ctrl_hum",
+            "field": "osrs_h"
+          }
+        }
+      ],
+      "evidence": [
+        "humidity_latch"
+      ]
+    }
+  ]
+}

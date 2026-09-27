@@ -1,0 +1,26 @@
+{
+  "id": "configure_humidity_x4",
+  "checkpoint": "successful_driver_exit",
+  "assertions": [
+    {
+      "id": "pending_request",
+      "ref": {
+        "kind": "field",
+        "register": "ctrl_hum",
+        "field": "osrs_h"
+      },
+      "equals": 3,
+      "basis": "Test intent: request fourfold humidity oversampling"
+    },
+    {
+      "id": "effective_request",
+      "ref": {
+        "kind": "state",
+        "id": "effective_osrs_h"
+      },
+      "equals": 3,
+      "basis": "Test intent: configuration must be effective when driver reports success",
+      "rule_id": "humidity_latch"
+    }
+  ]
+}
