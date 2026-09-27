@@ -1,6 +1,8 @@
-# GhostChip — reviewed virtual peripherals running real driver callbacks
+# GhostChip — test embedded drivers before the hardware arrives
 
-GhostChip now compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual read, write, and delay callbacks to a reviewed bounded virtual peripheral. Stage 4 demonstrates real initialization, wrong-ID branching, communication-error propagation, calibration parsing, humidity latching, and reset-after-configuration. It remains a bounded reviewed proof—not a complete sensor emulator, arbitrary driver platform, or frontend.
+GhostChip compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual read, write, and delay callbacks to a reviewed bounded virtual peripheral. The Stage 5 judge interface makes that proof visible: reviewed datasheet rules, source identity, real callback traces, deterministic PASS/FAIL/ERROR outcomes, the original buggy-driver failure, and limited ADXL345 generalization evidence.
+
+It remains a bounded reviewed proof—not a complete sensor emulator, arbitrary driver platform, silicon-equivalent model, or remote code-execution service.
 
 - [Architecture audit](docs/architecture.md)
 - [DeviceSpec v1 contract](docs/devicespec-v1.md) and [machine-readable schema](schema/devicespec-v1.schema.json)
@@ -10,6 +12,26 @@ GhostChip now compiles Bosch's pinned BME280 SensorAPI unchanged at its core and
 - [Verification record](docs/verification.md)
 - [Extraction boundary and artifacts](docs/extraction.md)
 - [ADXL345 generalization and anti-hardcoding audit](docs/generalization.md)
+- [Stage 5 product/API truth boundary](docs/stage5-product.md)
+- [2–3 minute demo script](docs/demo-script.md)
+
+## Start the judge-facing product
+
+On this Windows machine, the single start command builds the pinned Next.js static export with Windows Node 24, prepares a cached WSL Python environment when necessary, and starts the FastAPI/real-driver service:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-demo.ps1
+```
+
+Open `http://localhost:8765`. No vendor PDF fetch, API key, database, cloud service, or internet request is needed after the dependencies have been prepared. Only repository-owned curated C drivers are executable.
+
+The deterministic readiness and full UI/API/real-driver smoke gate is:
+
+```sh
+python3 -m ghostchip.demo --check --smoke
+```
+
+It checks required files and Python packages, GCC, the static frontend, exact Bosch hashes, the landing/API path, a fresh `humidity_x4` build and execution, its trace, and evidence serialization.
 
 ## Run on this Windows machine
 
@@ -101,6 +123,6 @@ Explicit manual inputs: which register slice to model, the board-selected 0x76 a
 
 Implemented: bounded PDF ingestion, source-layout extraction for reviewed slices, execution-time review-bundle verification, strict DeviceSpec/Scenario/FaultPlan validation, byte registers, internal state, bounded incrementing reads, explicit virtual delay/settle time, parameterized instance bytes, callback faults, typed API observations, pristine Bosch core compilation, build/source identity, and deterministic scenario evaluation.
 
-Not implemented: general arbitrary-datasheet or LLM extraction, UI/API, automated repair, arbitrary vendor SDKs, real I²C/SPI signaling, measurement/compensation, MCU emulation, remote uploads, or deployment. The deterministic source-layout adapters are device-document-specific; their candidates must pass one shared validator/reviewer/runtime. The Stage 4 adapter never supplies sensor bytes or canned API results; those come from reviewed model, instance, and FaultPlan inputs.
+Not implemented: general arbitrary-datasheet or LLM extraction, automated repair, arbitrary vendor SDKs, real I²C/SPI signaling, measurement/compensation, MCU emulation, remote uploads, multi-user accounts, or public deployment. The deterministic source-layout adapters are device-document-specific; their candidates must pass one shared validator/reviewer/runtime. The adapter never supplies sensor bytes or canned API results; those come from reviewed model, instance, and FaultPlan inputs. The frontend presents backend artifacts and cannot manufacture a verdict.
 
 Run only trusted code with this local runner. Its subprocess limits are not filesystem/network isolation. No remote repository or product deployment was created. Original project code is newly authored; no project distribution license has been selected. The vendor PDF remains vendor material and dependencies retain their licenses.

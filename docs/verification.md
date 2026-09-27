@@ -1,4 +1,4 @@
-# Verification record — Stage 4
+# Verification record — Stages 4 and 5
 
 Environment: Ubuntu WSL, Python 3.12.3, GCC 13.3.0 targeting `x86_64-linux-gnu`, jsonschema 4.10.3, pypdf 6.1.1 and cryptography 50.0.1. Every real-driver run creates a fresh immutable staged source tree and executable.
 
@@ -56,3 +56,24 @@ The checked-in Stage 4 golden fragments and the full pinned Bosch PDF independen
 Defensible: **GhostChip compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual hardware callbacks to a reviewed, bounded virtual peripheral derived from the datasheet. We demonstrate real initialization, read-dependent branching, communication-error propagation and humidity latching, using explicit test calibration bytes and a scoped reset-settling model.**
 
 Not established: arbitrary datasheet comprehension, arbitrary driver compatibility, physical/silicon equivalence, measurement or compensation behavior, general MCU emulation, or a real Bosch driver bug.
+
+## Stage 5 product gate — 2026-09-28
+
+The complete Python suite now contains **69 test methods** and passed with both optional pinned PDFs available. Eleven Stage 5 tests cover API PASS/FAIL/ERROR mapping, malformed-status fail-closed behavior, trace serialization, evidence/provenance serialization, Bosch identity, ADXL metadata, negative-control labeling, unknown routes, and one fresh compiled `init_ok` integration.
+
+Frontend verification:
+
+- `npm test`: **2/2 passed**. It proves an `ERROR` cannot use the PASS visual treatment and assertion counts are copied from result data.
+- `npm run build`: Next.js 16.3.6 production static export compiled and type-checked successfully; routes `/`, `/_not-found` and `/icon.svg` were generated.
+- Playwright CLI at 1440×900: landing hierarchy, pipeline, case explorer, model/evidence, Bosch identity and boundary sections rendered; the real `humidity_x4` UI run produced **VERIFIED, 13/13 assertions, 10 callbacks** and the expected callback timeline. Progress reflected the runner's real order: reviewed model, virtual-device construction, source identity, compilation, callbacks, assertions, result.
+- Playwright CLI at 390×844: navigation, CTAs, case explorer, failure details, assertions and horizontally scrollable trace remained reachable; essential meaning remained textual.
+- Real browser failure flow: `buggy_driver` produced **FAIL, 1/2 assertions, 4 trace events**, with expected/observed/cause/translation drawn from the actual failure result plus static explanatory copy.
+- After adding the app icon, the prior favicon-only 404 was removed from the generated route set.
+
+`python -m ghostchip.demo --check --smoke` passed from the isolated WSL source snapshot. It verified dependencies, GCC, required files, exact Bosch hashes, the built frontend through FastAPI, BME280 metadata, a POSTed `humidity_x4` run, final PASS, non-empty trace and evidence endpoint.
+
+The documented PowerShell launcher was exercised end to end. It built the current production frontend with Windows Node 24, streamed a source-only snapshot into `/tmp/ghostchip-demo-runtime-*`, prepared the cached WSL Python environment, started Uvicorn, and returned HTTP 200 from `/` and `/api/health`; health reported `remote_code_execution: false`.
+
+Final clean-source reproduction excluded Git state, virtual environments, Node modules, generated frontend output, artifacts and PDFs. It produced **65 passes plus exactly four optional-PDF skips** across 69 methods, then reproduced the original BME280 FAIL→PASS pair and all seven Stage 4 Bosch outcomes, including the expected negative-control FAIL.
+
+Stage 5 does not alter the Stage 4 claim boundary. UI labels and explanations are not model semantics, and no frontend code determines verification results.

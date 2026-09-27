@@ -58,8 +58,11 @@ def _compiler_text(compiler, flag):
     return (completed.stdout or completed.stderr).strip()
 
 
-def build(temp):
+def build(temp, progress=None):
+    progress = progress or (lambda *_: None)
+    progress("verifying_source_identity", "running", "Checking the pinned Bosch source manifest")
     metadata, original_hashes = verify_upstream()
+    progress("verifying_source_identity", "complete", "Pinned Bosch source bytes verified")
     stage = Path(temp) / "source"
     upstream_stage = stage / "third_party/bosch_bme280"
     example_stage = stage / "examples/bosch_bme280"
@@ -82,6 +85,7 @@ def build(temp):
                "-MMD", "-MF", str(deps), "-I", str(upstream_stage), "-I", str(example_stage),
                str(upstream_stage / "bme280.c"), str(example_stage / "adapter.c"),
                str(example_stage / "main.c"), "-o", str(exe)]
+    progress("compiling_real_driver", "running", "Compiling the unchanged Bosch SensorAPI core")
     completed = subprocess.run(command, cwd=temp, capture_output=True, text=True, timeout=20)
     if completed.returncode:
         raise RuntimeError("Compilation failed: " + completed.stdout + completed.stderr)
@@ -117,6 +121,7 @@ def build(temp):
         "compiler_command": command, "definitions": [], "dependency_headers": closure,
         "executable_sha256": digest(exe),
     }
+    progress("compiling_real_driver", "complete", "Real driver compilation succeeded")
     return exe, identity
 
 
@@ -182,7 +187,9 @@ def _callback_shape(event):
 
 
 def run_case(scenario, fault_plan, *, bundle=DEFAULT_BUNDLE, instance=FIXTURE / "instance.json",
-             experimental_spec=None, model_origin=None):
+             experimental_spec=None, model_origin=None, progress=None):
+    progress = progress or (lambda *_: None)
+    progress("verifying_reviewed_model", "running", "Reconstructing candidate, review, request, and evidence anchors")
     scenario = validate_scenario(scenario)
     faults = validate_fault_plan(fault_plan)
     reviewed = load_review_bundle(bundle)
@@ -194,7 +201,9 @@ def run_case(scenario, fault_plan, *, bundle=DEFAULT_BUNDLE, instance=FIXTURE / 
             raise ValueError("Experimental DeviceSpec requires an explicit unreviewed origin")
         spec = validate(deepcopy(experimental_spec))
         origin = model_origin
+    progress("verifying_reviewed_model", "complete", "Execution-time reviewed-model checks completed")
     instance = validate_instance(instance, spec)
+    progress("starting_virtual_device", "running", "Instantiating the bounded virtual peripheral")
     model = Peripheral(spec, instance)
     modeled_addresses = set(model.by_address)
     for fault in faults["faults"]:
@@ -206,6 +215,7 @@ def run_case(scenario, fault_plan, *, bundle=DEFAULT_BUNDLE, instance=FIXTURE / 
     for assertion in scenario["assertions"]:
         if assertion["source"] == "model":
             model.value(assertion["ref"])
+    progress("starting_virtual_device", "complete", "Virtual BME280 is ready")
     result = {"status": "ERROR", "case": scenario["id"], "model_origin": origin,
               "observations": {}, "callbacks": [], "faults_fired": [], "assertions": [],
               "violations": [], "trace": model.trace, "transfers": model.transfers,
@@ -228,7 +238,7 @@ def run_case(scenario, fault_plan, *, bundle=DEFAULT_BUNDLE, instance=FIXTURE / 
 
     try:
         with tempfile.TemporaryDirectory(prefix="ghostchip-bosch-") as temp:
-            exe, build_identity = build(temp)
+            exe, build_identity = build(temp, progress=progress)
             result["build"] = build_identity
 
             def handler(line):
@@ -273,11 +283,14 @@ def run_case(scenario, fault_plan, *, bundle=DEFAULT_BUNDLE, instance=FIXTURE / 
                 model.write(address, register, data)
                 return "0\n"
 
+            progress("executing_callbacks", "running", "Running the real driver through GhostChip callbacks")
             code, diagnostics = _execute(exe, scenario["action"], handler)
+            progress("executing_callbacks", "complete", "Callback execution completed")
             result["process_exit"] = code
             result["diagnostics"] = diagnostics
             if code != 0:
                 raise RuntimeError(f"Harness exited unexpectedly with {code}")
+        progress("checking_assertions", "running", "Evaluating the validated Scenario contract")
         missing = set(scenario["required_observations"]) - set(result["observations"])
         if missing:
             raise RuntimeError("Missing required observations: " + ", ".join(sorted(missing)))
@@ -298,9 +311,11 @@ def run_case(scenario, fault_plan, *, bundle=DEFAULT_BUNDLE, instance=FIXTURE / 
         result["final_state"] = deepcopy(model.state)
         result["final_registers"] = deepcopy(model.registers)
         result["logical_time_us"] = model.time_us
+        progress("checking_assertions", "complete", "Behavioral assertions evaluated")
     except (ValueError, RuntimeError, OSError, OutOfModel, subprocess.SubprocessError) as exc:
         result["status"] = "ERROR"
         result["error"] = str(exc)
+    progress("finalizing_result", "complete", f"Result finalized as {result['status']}")
     return result
 
 

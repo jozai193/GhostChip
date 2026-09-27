@@ -1,6 +1,6 @@
 # GhostChip architecture audit — 2026-09-27
 
-Decision: the bounded execution proof remains valid, and a page-preserving BME280 extraction slice now feeds it. The architecture is viable for a reviewed, partial peripheral model. Reliable automatic interpretation of arbitrary datasheets remains unproven.
+Decision: the bounded execution proof remains valid, and a page-preserving BME280 extraction slice now feeds it. Stage 5 adds a thin judge-facing presentation layer without changing the deterministic core. The architecture is viable for a reviewed, partial peripheral model. Reliable automatic interpretation of arbitrary datasheets remains unproven.
 
 The full supplied brief (sections 0–36 and introductory material) was read. Its priorities are sensible, but its proposed scope combines several separate research and engineering risks. A broad package tree, API, database and UI would conceal those risks before resolving them.
 
@@ -18,6 +18,22 @@ Compiled C fixture ↔ synchronous HAL RPC ↔ generic register runtime
                               deterministic PASS / FAIL / ERROR
 Later: failure + evidence → proposed patch → same model and scenario → rerun
 ```
+
+## Stage 5 application layer
+
+```text
+Next.js static export (TypeScript/React)
+                 ↓ same-origin HTTP
+FastAPI catalog + in-process run registry
+                 ↓ imports, never reimplements
+reviewed bundle / proof runner / real Bosch runner
+                 ↓
+actual result artifact → summary / trace / evidence projections
+```
+
+`ghostchip.presentation` adds readable labels and explanations only. Device/rule counts, evidence pages, review status, upstream identity, hashes, assertions, callbacks, elapsed time and verdicts come from reviewed artifacts or fresh executions. `ghostchip.api` exposes a curated allowlist; there is no upload, source parameter, shell command, authentication layer, queue, or arbitrary-code endpoint. Generated run records are local ignored artifacts under `artifacts/demo-runs/`.
+
+The static Next.js export is served by FastAPI on the same origin. This avoids a second runtime service during the demo and requires no browser-time network dependency. The Windows launcher uses Node 20.9+ for the build and Ubuntu WSL for Python/GCC execution.
 
 Use one Python package now, separated by modules: `spec` validates, `runtime` owns transitions, `proof` owns compilation and test evaluation. Keep the schema and fixture data outside runtime code. Later add extraction and API adapters around these boundaries. FastAPI, Next.js and SQLite remain reasonable options, but are not dependencies of this proof.
 

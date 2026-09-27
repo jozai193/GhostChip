@@ -9,7 +9,8 @@ root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="ghostchip-clean-") as temp:
     target = Path(temp) / "source"
     shutil.copytree(root, target, ignore=shutil.ignore_patterns(
-        ".git", ".venv", ".venv-wsl", "__pycache__", "artifacts", "datasheet.pdf"))
+        ".git", ".venv", ".venv-wsl", "__pycache__", "artifacts", "datasheet.pdf",
+        "node_modules", ".next", "out", ".playwright-cli", "output"))
     commands = [
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
         [sys.executable, "-m", "ghostchip.proof"],
