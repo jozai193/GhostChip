@@ -20,5 +20,7 @@ export function repairVisualState(status) {
   if (status === "PATCH_REJECTED") return { label: "PATCH REJECTED", tone: "error" };
   if (status === "PROPOSAL_ERROR") return { label: "PROPOSAL ERROR", tone: "error" };
   if (status === "VERIFICATION_ERROR") return { label: "VERIFICATION ERROR", tone: "error" };
+  if (status === "EXPIRED") return { label: "RESTART REQUIRED", tone: "error" };
+  if (status === "INTERRUPTED") return { label: "VERIFICATION INTERRUPTED", tone: "error" };
   return { label: status, tone: "pending" };
 }

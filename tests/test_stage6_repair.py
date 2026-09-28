@@ -20,26 +20,42 @@ class StaticProvider:
         self.touched = touched or [TARGET_REL]
         self.kind = kind
 
+    @property
+    def identity(self):
+        return {"id": "test-provider", "kind": self.kind, "model": "fixture-v1"}
+
     def propose(self, request):
         return {
             "version": "1.0.0", "explanation": "Test proposal",
             "unified_diff": self.diff, "files_touched": self.touched,
-            "provider": {"id": "test-provider", "kind": self.kind, "model": "fixture-v1"},
+            "provider": self.identity,
             "confidence": None,
         }
 
 
 class TimeoutProvider:
+    @property
+    def identity(self):
+        return {"id": "timeout-test", "kind": "test", "model": "fixture-v1"}
+
     def propose(self, request):
         raise TimeoutError("provider timed out")
 
 
 class MalformedProvider:
+    @property
+    def identity(self):
+        return {"id": "malformed-test", "kind": "test", "model": "fixture-v1"}
+
     def propose(self, request):
         return {"explanation": "missing required fields"}
 
 
 class UnavailableProvider:
+    @property
+    def identity(self):
+        return {"id": "unavailable-test", "kind": "test", "model": "fixture-v1"}
+
     def propose(self, request):
         raise ProviderUnavailable("provider is not configured")
 

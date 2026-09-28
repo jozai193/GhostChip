@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-from threading import Lock
+from threading import RLock
 import time
 from uuid import uuid4
 
@@ -15,6 +15,8 @@ from jsonschema import Draft202012Validator
 from .presentation import LEGACY_BME, _candidate_bundle, serialize_trace
 from .proof import digest, run_fixture
 from .spec import ROOT
+from .integrity import (ExecutionClosureError, canonical_sha256 as closure_sha256,
+                        validate_execution_closure)
 
 
 TARGET = ROOT / "examples/bme280_buggy.c"
@@ -43,8 +45,12 @@ class ProviderUnavailable(RepairError):
 
 
 def canonical_sha256(value):
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(payload).hexdigest()
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def canonical_json_bytes(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
 
 
 def _schema(path):
@@ -165,6 +171,11 @@ def validate_and_apply_patch(source, unified_diff, constraints):
 
 
 class RepairProvider(ABC):
+    @property
+    @abstractmethod
+    def identity(self):
+        """Return identity from trusted provider configuration, not its response."""
+
     @abstractmethod
     def propose(self, request):
         """Return a RepairProposal dictionary."""
@@ -172,6 +183,11 @@ class RepairProvider(ABC):
 
 class LocalDemoRepairProvider(RepairProvider):
     """Offline deterministic provider for the curated demo. It is not an AI model."""
+
+    @property
+    def identity(self):
+        return {"id": "ghostchip-local-demo", "kind": "local_demo",
+                "model": "deterministic-rule-v1"}
 
     def propose(self, request):
         if request["source"]["path"] != TARGET_REL or request["rule"]["id"] != "humidity_latch":
@@ -196,7 +212,7 @@ class LocalDemoRepairProvider(RepairProvider):
                 "     if (gc_i2c_read(0x76, 0xF2, &humidity, 1) || humidity != 3) return -1;\n"
             ),
             "files_touched": [TARGET_REL],
-            "provider": {"id": "ghostchip-local-demo", "kind": "local_demo", "model": "deterministic-rule-v1"},
+            "provider": deepcopy(self.identity),
             "confidence": None,
         }
 
@@ -210,12 +226,38 @@ def provider_from_environment():
     )
 
 
-def build_repair_request(run_record):
+def _provider_identity(provider):
+    identity = deepcopy(provider.identity)
+    if not isinstance(identity, dict) or set(identity) != {"id", "kind", "model"}:
+        raise ProviderUnavailable("Repair provider has no valid configured identity")
+    if identity["kind"] not in {"local_demo", "live_ai", "test"}:
+        raise ProviderUnavailable("Repair provider has an unsupported configured kind")
+    if not all(isinstance(identity[key], str) and identity[key] for key in identity):
+        raise ProviderUnavailable("Repair provider identity fields must be non-empty strings")
+    return identity
+
+
+def _model_sha256(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def build_repair_request(run_record, *, repair_id=None, request_id=None):
     if run_record.get("status") != "FAIL" or run_record.get("case_id") != "buggy_driver":
         raise RepairError("Repairs require the immutable failed buggy_driver run")
     result = run_record.get("result")
     if not result or result.get("status") != "FAIL":
         raise RepairError("Failed run has no deterministic failure result")
+    if run_record.get("id") is None:
+        raise RepairError("Failed run has no stable identity")
+    if result.get("driver_sha256") != digest(TARGET):
+        raise RepairError("Original source changed after the failed run")
+    closure = result.get("execution_closure")
+    if not closure:
+        raise RepairError("Failed run did not record its execution closure")
+    try:
+        validate_execution_closure(closure, ROOT)
+    except ExecutionClosureError as exc:
+        raise RepairError(str(exc)) from exc
     failed = [item for item in result.get("assertions", []) if not item.get("passed")]
     if not failed:
         raise RepairError("Failed run contains no failed assertion")
@@ -226,12 +268,21 @@ def build_repair_request(run_record):
     if rule is None:
         raise RepairError("Failed assertion is not bound to an active reviewed rule")
     evidence_map = {item["id"]: item for item in spec["evidence"]}
-    source = TARGET.read_text()
+    source_bytes = TARGET.read_bytes()
+    try:
+        source = source_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RepairError("Repair target is not UTF-8 text") from exc
     compiler = (result.get("build") or {}).get("compiler_configuration")
     if not compiler:
         raise RepairError("Failed run did not record compiler configuration")
     request = {
         "version": "1.0.0",
+        "request": {
+            "id": request_id or uuid4().hex,
+            "repair_id": repair_id or uuid4().hex,
+            "run_id": run_record["id"],
+        },
         "run": {
             "id": run_record["id"], "case_id": run_record["case_id"], "status": "FAIL",
             "result_sha256": canonical_sha256(result),
@@ -254,7 +305,7 @@ def build_repair_request(run_record):
             ],
         },
         "source": {
-            "path": TARGET_REL, "sha256": digest(TARGET), "start_line": 1,
+            "path": TARGET_REL, "sha256": hashlib.sha256(source_bytes).hexdigest(), "start_line": 1,
             "end_line": len(source.splitlines()), "content": source,
         },
         "identities": {
@@ -262,6 +313,7 @@ def build_repair_request(run_record):
             "spec_sha256": result["spec_sha256"], "scenario_sha256": result["scenario_sha256"],
             "instance_sha256": None, "fault_plan_sha256": None,
             "compiler_configuration": deepcopy(compiler),
+            "execution_closure": deepcopy(closure),
         },
         "constraints": {
             "allowed_files": [TARGET_REL], "forbidden_paths": list(FORBIDDEN_PATHS),
@@ -272,11 +324,15 @@ def build_repair_request(run_record):
 
 
 def _public_record(record):
-    visible = {key: deepcopy(value) for key, value in record.items() if key not in ("request", "derived_source")}
+    hidden = {"request", "request_bytes", "provider_response_raw", "provider_response",
+              "derived_source"}
+    visible = {key: deepcopy(value) for key, value in record.items()
+               if key not in hidden and not key.startswith("_")}
     if "request" in record:
         request = record["request"]
         visible["request"] = {
-            "sha256": record["request_sha256"], "run": request["run"], "failure": request["failure"],
+            "id": request["request"]["id"], "sha256": record["request_sha256"],
+            "run": request["run"], "failure": request["failure"],
             "rule": request["rule"], "source": {key: request["source"][key] for key in ("path", "sha256", "start_line", "end_line")},
             "identities": request["identities"], "constraints": request["constraints"],
         }
@@ -284,12 +340,16 @@ def _public_record(record):
 
 
 class RepairStore:
+    TERMINAL = {"VERIFIED", "VERIFICATION_FAILED", "COMPILE_ERROR", "VERIFICATION_ERROR",
+                "PROPOSAL_ERROR", "PATCH_REJECTED", "DISCARDED", "EXPIRED", "INTERRUPTED"}
+
     def __init__(self, run_store, provider=None, root=REPAIR_ROOT):
         self.run_store = run_store
         self.provider = provider
         self.root = Path(root)
         self._repairs = {}
-        self._lock = Lock()
+        self._reservations = {}
+        self._lock = RLock()
 
     def _save(self, record):
         self.root.mkdir(parents=True, exist_ok=True)
@@ -303,40 +363,219 @@ class RepairStore:
             record["events"].append({"stage": stage, "state": state, "detail": detail,
                                      "at_ms": round((time.time() - record["created_at"]) * 1000, 3)})
 
+    @staticmethod
+    def _proposal_payload(proposal):
+        keys = ("version", "explanation", "unified_diff", "files_touched", "provider", "confidence")
+        return {key: deepcopy(proposal[key]) for key in keys}
+
+    @staticmethod
+    def _lineage_fingerprint(record):
+        keys = ("id", "run_id", "request_id", "proposal_id", "request",
+                "request_bytes", "request_sha256", "trusted_provider",
+                "provider_response_raw", "provider_response",
+                "normalized_proposal_sha256", "proposal", "derived_source")
+        return canonical_sha256({key: record.get(key) for key in keys})
+
+    def _validate_internal_lineage(self, record, *, require_proposal=True):
+        request = record.get("request")
+        if not isinstance(request, dict):
+            raise RepairError("Repair record has no frozen request")
+        identity = request.get("request") or {}
+        if record.get("id") != identity.get("repair_id"):
+            raise RepairError("Repair identity does not match the request")
+        if record.get("request_id") != identity.get("id"):
+            raise RepairError("Request identity does not match the record")
+        if record.get("run_id") != identity.get("run_id") or record.get("run_id") != (request.get("run") or {}).get("id"):
+            raise RepairError("Run identity does not match the frozen request")
+        request_bytes = record.get("request_bytes", "").encode("utf-8")
+        if (request_bytes != canonical_json_bytes(request) or
+                hashlib.sha256(request_bytes).hexdigest() != record.get("request_sha256")):
+            raise RepairError("Frozen request bytes or hash changed")
+        source = request.get("source") or {}
+        if hashlib.sha256(source.get("content", "").encode("utf-8")).hexdigest() != source.get("sha256"):
+            raise RepairError("Frozen original source bytes do not match their hash")
+        closure = (request.get("identities") or {}).get("execution_closure") or {}
+        closure_body = {key: closure.get(key) for key in ("version", "files", "compiler")}
+        if closure_sha256(closure_body) != closure.get("sha256"):
+            raise RepairError("Frozen execution-closure hash is inconsistent")
+        if not require_proposal:
+            return
+        proposal = record.get("proposal")
+        provider_response = record.get("provider_response")
+        if not isinstance(proposal, dict) or not isinstance(provider_response, dict):
+            raise RepairError("Repair record has no frozen proposal")
+        if proposal.get("repair_id") != record.get("id") or proposal.get("request_id") != record.get("request_id"):
+            raise RepairError("Proposal identity does not match its request")
+        if proposal.get("proposal_id") != record.get("proposal_id"):
+            raise RepairError("Proposal identity does not match the record")
+        if proposal.get("request_sha256") != record.get("request_sha256"):
+            raise RepairError("Proposal is bound to a different request hash")
+        raw = record.get("provider_response_raw", "").encode("utf-8")
+        if hashlib.sha256(raw).hexdigest() != proposal.get("response_sha256"):
+            raise RepairError("Raw provider response hash changed")
+        try:
+            decoded = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RepairError("Raw provider response is no longer valid JSON") from exc
+        if decoded != provider_response or canonical_json_bytes(provider_response) != raw:
+            raise RepairError("Raw and normalized provider response differ")
+        if canonical_sha256(provider_response) != record.get("normalized_proposal_sha256"):
+            raise RepairError("Normalized proposal hash changed")
+        if self._proposal_payload(proposal) != provider_response:
+            raise RepairError("Displayed proposal differs from the provider response")
+        if proposal.get("provider") != record.get("trusted_provider"):
+            raise RepairError("Proposal provider differs from trusted configuration")
+        patch = proposal.get("unified_diff", "")
+        if hashlib.sha256(patch.encode("utf-8")).hexdigest() != proposal.get("patch_sha256"):
+            raise RepairError("Patch bytes or hash changed")
+        derived, touched, changed = validate_and_apply_patch(
+            source["content"], patch, request["constraints"]
+        )
+        if proposal.get("files_touched") != [touched] or proposal.get("changed_lines") != changed:
+            raise RepairError("Proposal file or changed-line metadata changed")
+        derived_hash = hashlib.sha256(derived.encode("utf-8")).hexdigest()
+        if (derived != record.get("derived_source") or
+                derived_hash != proposal.get("resulting_source_sha256")):
+            raise RepairError("Derived source bytes or hash changed")
+
+    def _validate_active_lineage(self, record):
+        self._validate_internal_lineage(record)
+        validate_repair_request(record["request"])
+        provider = self.provider or provider_from_environment()
+        if _provider_identity(provider) != record.get("trusted_provider"):
+            raise RepairError("Configured provider identity changed after proposal generation")
+        current_run = self.run_store.get(record["run_id"])
+        request = record["request"]
+        if (current_run.get("id") != record["run_id"] or
+                current_run.get("case_id") != request["run"]["case_id"] or
+                current_run.get("status") != "FAIL"):
+            raise RepairError("The bound failed run identity or state changed")
+        if canonical_sha256(current_run.get("result")) != request["run"]["result_sha256"]:
+            raise RepairError("The bound failed result bytes changed")
+        if digest(TARGET) != request["source"]["sha256"]:
+            raise RepairError("Original source changed after the failed run")
+        validate_execution_closure(request["identities"]["execution_closure"], ROOT)
+        scenario = json.loads(SCENARIO.read_text())
+        if _model_sha256(scenario) != request["identities"]["scenario_sha256"]:
+            raise RepairError("Scenario bytes changed after the failed run")
+        bundle = _candidate_bundle(LEGACY_BME)
+        if bundle["identities"] != request["identities"]["reviewed_bundle"]:
+            raise RepairError("Reviewed bundle identity changed after the failed run")
+        if _model_sha256(bundle["reviewed_spec"]) != request["identities"]["spec_sha256"]:
+            raise RepairError("Reviewed specification changed after the failed run")
+        return bundle, scenario
+
+    @staticmethod
+    def _write_atomic(path, payload):
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name("." + path.name + ".tmp")
+        temporary.write_bytes(payload)
+        os.replace(temporary, path)
+
+    def _stage_snapshot(self, record, bundle, scenario):
+        snapshot = self.root / record["id"] / "execution-snapshot"
+        files = {
+            "gc_hal.c": (ROOT / "examples/gc_hal.c").read_bytes(),
+            "gc_hal.h": (ROOT / "examples/gc_hal.h").read_bytes(),
+            "original.c": record["request"]["source"]["content"].encode("utf-8"),
+            "candidate.c": record["derived_source"].encode("utf-8"),
+            "scenario.json": canonical_json_bytes(scenario),
+            "reviewed-bundle.json": canonical_json_bytes(bundle),
+            "execution-closure.json": canonical_json_bytes(record["request"]["identities"]["execution_closure"]),
+        }
+        manifest = {}
+        for name, payload in files.items():
+            self._write_atomic(snapshot / name, payload)
+            manifest[name] = hashlib.sha256(payload).hexdigest()
+        body = {"version": "repair-execution-snapshot-v1", "files": manifest}
+        body["sha256"] = canonical_sha256(body)
+        self._write_atomic(snapshot / "manifest.json", json.dumps(body, indent=2).encode("utf-8") + b"\n")
+        return snapshot, body
+
+    @staticmethod
+    def _validate_snapshot(snapshot, manifest):
+        snapshot = Path(snapshot)
+        body = {"version": manifest.get("version"), "files": manifest.get("files")}
+        if canonical_sha256(body) != manifest.get("sha256"):
+            raise RepairError("Execution snapshot manifest hash changed")
+        for name, expected in manifest["files"].items():
+            path = snapshot / name
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                raise RepairError(f"Execution snapshot changed: {name}")
+
+    def _integrity_failure(self, repair_id, exc, *, code="LINEAGE_INTEGRITY_ERROR"):
+        with self._lock:
+            record = self._repairs[repair_id]
+            record.update(status="VERIFICATION_ERROR", origin="demo_repair_error",
+                          error_code=code, error=str(exc), completed_at=time.time())
+            saved = deepcopy(record)
+        self._save(saved)
+
     def create(self, run_id):
         run = self.run_store.get(run_id)
-        request = build_repair_request(run)
         repair_id = uuid4().hex
+        request_id = uuid4().hex
+        request = build_repair_request(run, repair_id=repair_id, request_id=request_id)
+        request_bytes = canonical_json_bytes(request)
         record = {
-            "id": repair_id, "run_id": run_id, "status": "GENERATING", "events": [],
-            "created_at": time.time(), "request": request,
-            "request_sha256": canonical_sha256(request), "proposal": None,
+            "id": repair_id, "request_id": request_id, "run_id": run_id,
+            "status": "GENERATING", "events": [], "created_at": time.time(),
+            "request": request, "request_bytes": request_bytes.decode("utf-8"),
+            "request_sha256": hashlib.sha256(request_bytes).hexdigest(), "proposal": None,
         }
         with self._lock:
             self._repairs[repair_id] = record
+            saved = deepcopy(record)
+        self._save(saved)
         return _public_record(record)
 
     def generate(self, repair_id):
-        self._event(repair_id, "constructing_request", "complete", "Bounded request schema and failed-run binding verified")
+        self._event(repair_id, "constructing_request", "complete", "Frozen request bytes, closure, and failed-run binding verified")
         try:
             provider = self.provider or provider_from_environment()
-            with self._lock:
-                request = deepcopy(self._repairs[repair_id]["request"])
-            self._event(repair_id, "requesting_proposal", "running", "Requesting one bounded single-file proposal")
-            proposal = validate_provider_response(provider.propose(deepcopy(request)))
-            derived, touched, changed = validate_and_apply_patch(request["source"]["content"], proposal["unified_diff"], request["constraints"])
-            if proposal["files_touched"] != [touched]:
-                raise PatchRejected("Provider file list does not match the unified diff")
-            response_sha = canonical_sha256(proposal)
-            enriched = {**proposal, "request_sha256": self._repairs[repair_id]["request_sha256"],
-                        "response_sha256": response_sha,
-                        "patch_sha256": hashlib.sha256(proposal["unified_diff"].encode()).hexdigest(),
-                        "resulting_source_sha256": hashlib.sha256(derived.encode()).hexdigest(),
-                        "changed_lines": changed}
+            trusted_provider = _provider_identity(provider)
             with self._lock:
                 record = self._repairs[repair_id]
-                record.update(status="PROPOSED", proposal=enriched, derived_source=derived)
-            self._event(repair_id, "validating_patch", "complete", "Patch changes only the allowlisted driver fixture")
+                request = deepcopy(record["request"])
+                request_sha = record["request_sha256"]
+            self._event(repair_id, "requesting_proposal", "running", "Requesting one bounded single-file proposal")
+            raw_response = provider.propose(deepcopy(request))
+            raw_bytes = canonical_json_bytes(raw_response)
+            normalized = json.loads(raw_bytes.decode("utf-8"))
+            validate_provider_response(normalized)
+            if normalized["provider"] != trusted_provider:
+                raise PatchRejected("Provider response identity contradicts trusted configuration")
+            derived, touched, changed = validate_and_apply_patch(
+                request["source"]["content"], normalized["unified_diff"], request["constraints"]
+            )
+            if normalized["files_touched"] != [touched]:
+                raise PatchRejected("Provider file list does not match the unified diff")
+            proposal_id = uuid4().hex
+            enriched = {
+                **normalized,
+                "repair_id": repair_id,
+                "request_id": request["request"]["id"],
+                "proposal_id": proposal_id,
+                "request_sha256": request_sha,
+                "response_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+                "normalized_proposal_sha256": canonical_sha256(normalized),
+                "patch_sha256": hashlib.sha256(normalized["unified_diff"].encode("utf-8")).hexdigest(),
+                "resulting_source_sha256": hashlib.sha256(derived.encode("utf-8")).hexdigest(),
+                "changed_lines": changed,
+            }
+            with self._lock:
+                record = self._repairs[repair_id]
+                record.update(
+                    status="PROPOSED", proposal_id=proposal_id,
+                    trusted_provider=deepcopy(trusted_provider),
+                    provider_response_raw=raw_bytes.decode("utf-8"),
+                    provider_response=normalized,
+                    normalized_proposal_sha256=canonical_sha256(normalized),
+                    proposal=enriched, derived_source=derived,
+                )
+                self._validate_internal_lineage(record)
+            self._event(repair_id, "validating_patch", "complete", "Patch bytes and derived source are frozen and hash-bound")
         except TimeoutError as exc:
             with self._lock:
                 self._repairs[repair_id].update(status="PROPOSAL_ERROR", error_code="PROVIDER_TIMEOUT", error=str(exc))
@@ -353,32 +592,87 @@ class RepairStore:
             saved = deepcopy(self._repairs[repair_id])
         self._save(saved)
 
-    def apply_and_verify(self, repair_id):
+    def reserve_apply(self, repair_id):
+        """Atomically validate, persist APPLYING, and reserve exactly one worker."""
         with self._lock:
+            if repair_id not in self._repairs:
+                self._load(repair_id)
             record = self._repairs[repair_id]
             if record["status"] != "PROPOSED":
                 raise RepairError("Only a validated proposal can be applied")
+            try:
+                bundle, scenario = self._validate_active_lineage(record)
+                snapshot, manifest = self._stage_snapshot(record, bundle, scenario)
+            except Exception as exc:
+                record.update(status="VERIFICATION_ERROR", origin="demo_repair_error",
+                              error_code="LINEAGE_INTEGRITY_ERROR", error=str(exc),
+                              completed_at=time.time())
+                self._save(deepcopy(record))
+                raise RepairError(str(exc)) from exc
             record["status"] = "APPLYING"
-            request = deepcopy(record["request"])
-            derived = record["derived_source"]
-        self._event(repair_id, "applying_patch", "running", "Creating a derived source artifact; original remains read-only")
+            record["snapshot_manifest"] = manifest
+            record["events"].append({
+                "stage": "apply_reserved", "state": "complete",
+                "detail": "Atomic apply reservation persisted before verification",
+                "at_ms": round((time.time() - record["created_at"]) * 1000, 3),
+            })
+            lineage_sha = self._lineage_fingerprint(record)
+            self._reservations[repair_id] = {
+                "record": deepcopy(record), "bundle": deepcopy(bundle),
+                "scenario": deepcopy(scenario), "snapshot": str(snapshot),
+                "manifest": deepcopy(manifest), "lineage_sha256": lineage_sha,
+                "worker_started": False,
+            }
+            saved = deepcopy(record)
+            self._save(saved)
+            return _public_record(record)
+
+    def apply_and_verify(self, repair_id):
+        with self._lock:
+            reservation = self._reservations.get(repair_id)
+        if reservation is None:
+            try:
+                self.reserve_apply(repair_id)
+            except RepairError:
+                # Direct/background callers can inspect the persisted integrity
+                # failure.  API callers reserve synchronously and still receive
+                # the required HTTP 409.
+                with self._lock:
+                    if self._repairs.get(repair_id, {}).get("status") == "VERIFICATION_ERROR":
+                        return
+                raise
+        with self._lock:
+            reservation = self._reservations[repair_id]
+            if reservation["worker_started"]:
+                raise RepairError("Verification is already running for this repair")
+            reservation["worker_started"] = True
+            work = deepcopy(reservation)
+        record = work["record"]
+        request = record["request"]
+        provider = record["trusted_provider"]
+        self._event(repair_id, "applying_patch", "running", "Using the frozen derived source; original remains read-only")
         try:
-            current_run = self.run_store.get(record["run_id"])
-            if canonical_sha256(current_run["result"]) != request["run"]["result_sha256"]:
-                raise RepairError("The bound failed run changed after proposal generation")
+            with self._lock:
+                current = self._repairs[repair_id]
+                if self._lineage_fingerprint(current) != work["lineage_sha256"]:
+                    raise RepairError("Repair lineage changed after apply reservation")
+            self._validate_active_lineage(record)
+            self._validate_snapshot(work["snapshot"], work["manifest"])
+            snapshot = Path(work["snapshot"])
+            derived_path = snapshot / "candidate.c"
+            self._event(repair_id, "compiling_candidate", "running", "Compiling the immutable staged candidate and HAL snapshot")
+            result = run_fixture(
+                derived_path, scenario=work["scenario"], review_bundle=work["bundle"],
+                hal_root=snapshot,
+            )
+            self._event(repair_id, "deterministic_rerun", "complete", f"Frozen oracle returned {result['status']}")
+            validate_execution_closure(request["identities"]["execution_closure"], ROOT)
+            self._validate_snapshot(snapshot, work["manifest"])
             if digest(TARGET) != request["source"]["sha256"]:
-                raise RepairError("Original source changed after proposal generation")
-            repair_dir = self.root / repair_id
-            repair_dir.mkdir(parents=True, exist_ok=True)
-            derived_path = repair_dir / "bme280_buggy.repaired.c"
-            temporary = repair_dir / ".source.tmp"
-            temporary.write_text(derived)
-            os.replace(temporary, derived_path)
-            self._event(repair_id, "compiling_candidate", "running", "Compiling the derived fixture with the original runner")
-            bundle = _candidate_bundle(LEGACY_BME)
-            scenario = json.loads(SCENARIO.read_text())
-            result = run_fixture(derived_path, scenario=scenario, review_bundle=bundle)
-            self._event(repair_id, "deterministic_rerun", "complete", f"Unchanged oracle returned {result['status']}")
+                raise RepairError("Original source was modified during verification")
+            with self._lock:
+                if self._lineage_fingerprint(self._repairs[repair_id]) != work["lineage_sha256"]:
+                    raise RepairError("Repair lineage changed while verification was running")
             identity_checks = {
                 "reviewed_bundle": result.get("review_bundle") == request["identities"]["reviewed_bundle"],
                 "spec_sha256": result.get("spec_sha256") == request["identities"]["spec_sha256"],
@@ -386,12 +680,13 @@ class RepairStore:
                 "instance_sha256": request["identities"]["instance_sha256"] is None,
                 "fault_plan_sha256": request["identities"]["fault_plan_sha256"] is None,
                 "compiler_configuration": (result.get("build") or {}).get("compiler_configuration") == request["identities"]["compiler_configuration"],
+                "execution_closure": result.get("execution_closure") == request["identities"]["execution_closure"],
+                "staged_hal": (result.get("hal_sha256") == request["identities"]["execution_closure"]["files"]["examples/gc_hal.c"] and
+                               result.get("hal_header_sha256") == request["identities"]["execution_closure"]["files"]["examples/gc_hal.h"]),
             }
-            if digest(TARGET) != request["source"]["sha256"]:
-                raise RepairError("Original source was modified during verification")
             if not all(identity_checks.values()):
                 raise RepairError("Deterministic rerun identity does not match the failed run")
-            live_provider = record["proposal"]["provider"]["kind"] == "live_ai"
+            live_provider = provider["kind"] == "live_ai"
             if result["status"] == "PASS":
                 status, origin = "VERIFIED", "ai_repair_verified" if live_provider else "demo_repair_verified"
             elif result["status"] == "FAIL":
@@ -401,14 +696,19 @@ class RepairStore:
             else:
                 status, origin = "VERIFICATION_ERROR", "ai_repair_error" if live_provider else "demo_repair_error"
             audit = {
-                "original_run_id": record["run_id"],
+                "repair_id": record["id"], "request_id": record["request_id"],
+                "proposal_id": record["proposal_id"], "original_run_id": record["run_id"],
+                "failed_result_sha256": request["run"]["result_sha256"],
                 "failed_assertion_ids": request["failure"]["assertion_ids"],
                 "original_source_sha256": request["source"]["sha256"],
                 "repair_request_sha256": record["request_sha256"],
-                "provider": record["proposal"]["provider"],
+                "provider": deepcopy(provider),
                 "provider_response_sha256": record["proposal"]["response_sha256"],
+                "normalized_proposal_sha256": record["normalized_proposal_sha256"],
                 "patch_sha256": record["proposal"]["patch_sha256"],
                 "resulting_source_sha256": digest(derived_path),
+                "execution_closure_sha256": request["identities"]["execution_closure"]["sha256"],
+                "snapshot_manifest_sha256": work["manifest"]["sha256"],
                 "compile_result": "PASS" if result["status"] != "ERROR" else "ERROR",
                 "reviewed_model_identity": result.get("review_bundle"),
                 "scenario_sha256": result.get("scenario_sha256"),
@@ -423,21 +723,24 @@ class RepairStore:
             except ValueError:
                 derived_label = str(derived_path)
             with self._lock:
-                self._repairs[repair_id].update(status=status, origin=origin, audit=audit, verification=result,
-                                                completed_at=time.time(), derived_path=derived_label)
+                current = self._repairs[repair_id]
+                current.update(status=status, origin=origin, audit=audit, verification=result,
+                               completed_at=time.time(), derived_path=derived_label)
+                saved = deepcopy(current)
         except Exception as exc:
-            proposal = record.get("proposal") or {}
-            provider = proposal.get("provider") or {}
             error_origin = "ai_repair_error" if provider.get("kind") == "live_ai" else "demo_repair_error"
             with self._lock:
-                self._repairs[repair_id].update(status="VERIFICATION_ERROR", origin=error_origin,
-                                                error_code="VERIFICATION_ERROR", error=str(exc), completed_at=time.time())
-        with self._lock:
-            saved = deepcopy(self._repairs[repair_id])
+                current = self._repairs[repair_id]
+                current.update(status="VERIFICATION_ERROR", origin=error_origin,
+                               error_code="VERIFICATION_ERROR", error=str(exc),
+                               completed_at=time.time())
+                saved = deepcopy(current)
         self._save(saved)
 
     def discard(self, repair_id):
         with self._lock:
+            if repair_id not in self._repairs:
+                self._load(repair_id)
             record = self._repairs[repair_id]
             if record["status"] not in ("PROPOSED", "PROPOSAL_ERROR", "PATCH_REJECTED"):
                 raise RepairError("This repair can no longer be discarded")
@@ -447,11 +750,55 @@ class RepairStore:
         self._save(saved)
         return _public_record(saved)
 
+    def _load(self, repair_id):
+        path = self.root / f"{repair_id}.json"
+        if not path.exists():
+            raise KeyError(repair_id)
+        record = json.loads(path.read_text())
+        if record.get("id") != repair_id:
+            raise KeyError(repair_id)
+        status = record.get("status")
+        if status in {"GENERATING", "PROPOSED"}:
+            record.update(status="EXPIRED", error_code="RESTART_REQUIRED",
+                          error="Nonterminal repair expired after process restart",
+                          completed_at=time.time())
+            self._save(record)
+        elif status == "APPLYING":
+            record.update(status="INTERRUPTED", error_code="RESTART_REQUIRED",
+                          error="Verification was interrupted by process restart",
+                          completed_at=time.time())
+            self._save(record)
+        elif record.get("proposal") is not None:
+            try:
+                self._validate_internal_lineage(record)
+                audit = record.get("audit")
+                if audit:
+                    expected = {
+                        "repair_id": record["id"], "request_id": record["request_id"],
+                        "proposal_id": record["proposal_id"], "original_run_id": record["run_id"],
+                        "failed_result_sha256": record["request"]["run"]["result_sha256"],
+                        "repair_request_sha256": record["request_sha256"],
+                        "provider": record["trusted_provider"],
+                        "provider_response_sha256": record["proposal"]["response_sha256"],
+                        "normalized_proposal_sha256": record["normalized_proposal_sha256"],
+                        "patch_sha256": record["proposal"]["patch_sha256"],
+                        "resulting_source_sha256": record["proposal"]["resulting_source_sha256"],
+                        "execution_closure_sha256": record["request"]["identities"]["execution_closure"]["sha256"],
+                    }
+                    if any(audit.get(key) != value for key, value in expected.items()):
+                        raise RepairError("Persisted audit does not match frozen lineage")
+            except Exception as exc:
+                record.update(status="VERIFICATION_ERROR",
+                              error_code="PERSISTED_RECORD_INTEGRITY_ERROR",
+                              error=str(exc), completed_at=time.time())
+                self._save(record)
+        with self._lock:
+            self._repairs[repair_id] = record
+        return record
+
     def get(self, repair_id):
         with self._lock:
-            if repair_id in self._repairs:
-                return _public_record(self._repairs[repair_id])
-        path = self.root / f"{repair_id}.json"
-        if path.exists():
-            return _public_record(json.loads(path.read_text()))
-        raise KeyError(repair_id)
+            record = self._repairs.get(repair_id)
+        if record is None:
+            record = self._load(repair_id)
+        return _public_record(record)

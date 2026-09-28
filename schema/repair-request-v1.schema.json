@@ -4,9 +4,19 @@
   "title": "GhostChip bounded repair request v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "run", "failure", "rule", "source", "identities", "constraints"],
+  "required": ["version", "request", "run", "failure", "rule", "source", "identities", "constraints"],
   "properties": {
     "version": {"const": "1.0.0"},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "repair_id", "run_id"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "repair_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "run_id": {"type": "string", "minLength": 1}
+      }
+    },
     "run": {
       "type": "object",
       "additionalProperties": false,
@@ -74,14 +84,25 @@
     "identities": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reviewed_bundle", "spec_sha256", "scenario_sha256", "instance_sha256", "fault_plan_sha256", "compiler_configuration"],
+      "required": ["reviewed_bundle", "spec_sha256", "scenario_sha256", "instance_sha256", "fault_plan_sha256", "compiler_configuration", "execution_closure"],
       "properties": {
         "reviewed_bundle": {"type": "object", "minProperties": 1},
         "spec_sha256": {"$ref": "#/$defs/sha256"},
         "scenario_sha256": {"$ref": "#/$defs/sha256"},
         "instance_sha256": {"type": ["string", "null"]},
         "fault_plan_sha256": {"type": ["string", "null"]},
-        "compiler_configuration": {"type": "object", "minProperties": 1}
+        "compiler_configuration": {"type": "object", "minProperties": 1},
+        "execution_closure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "files", "compiler", "sha256"],
+          "properties": {
+            "version": {"const": "execution-closure-v1"},
+            "files": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/sha256"}},
+            "compiler": {"type": "object", "minProperties": 4},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
       }
     },
     "constraints": {

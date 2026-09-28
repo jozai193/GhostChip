@@ -177,13 +177,13 @@ def create_app(*, store=None, repair_store=None, repair_provider=None, static_di
     @app.post("/api/repairs/{repair_id}/apply-and-verify", status_code=202)
     def apply_repair(repair_id: str, background: BackgroundTasks):
         try:
-            record = repairs.get(repair_id)
+            record = repairs.reserve_apply(repair_id)
         except KeyError:
             raise HTTPException(404, "Unknown repair") from None
-        if record["status"] != "PROPOSED":
-            raise HTTPException(409, "Only a validated proposal can be applied")
+        except RepairError as exc:
+            raise HTTPException(409, str(exc)) from None
         background.add_task(repairs.apply_and_verify, repair_id)
-        return {**record, "status": "APPLYING"}
+        return record
 
     @app.post("/api/repairs/{repair_id}/discard")
     def discard_repair(repair_id: str):

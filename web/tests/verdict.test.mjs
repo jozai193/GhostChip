@@ -16,5 +16,7 @@ test("repair states keep proposal, compile, verification failure, and verified d
   assert.deepEqual(repairVisualState("VERIFIED"), { label: "VERIFIED REPAIR", tone: "pass" });
   assert.deepEqual(repairVisualState("VERIFICATION_FAILED"), { label: "VERIFICATION FAILED", tone: "fail" });
   assert.deepEqual(repairVisualState("COMPILE_ERROR"), { label: "COMPILE ERROR", tone: "error" });
+  assert.deepEqual(repairVisualState("EXPIRED"), { label: "RESTART REQUIRED", tone: "error" });
+  assert.deepEqual(repairVisualState("INTERRUPTED"), { label: "VERIFICATION INTERRUPTED", tone: "error" });
   assert.notEqual(repairVisualState("VERIFICATION_FAILED").tone, repairVisualState("VERIFIED").tone);
 });

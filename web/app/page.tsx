@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { assertionSummary, repairVisualState, TERMINAL_VERDICTS, visualVerdict } from "../lib/verdict.mjs";
+import { acceptsRepair, acceptsRun, bindRepair, bindRun, canApplyRepair, nextGeneration, sameGeneration } from "../lib/active-context.mjs";
 
 type CaseMeta = {
   id: string; label: string; group: string; expected: "PASS" | "FAIL";
@@ -55,6 +56,9 @@ type RepairRecord = {
     identity_checks: Record<string, boolean>; provider: { kind: string; id: string; model: string };
   };
 };
+type ActiveContext = {
+  generation: number; caseId: string; runId: string | null; repairId: string | null;
+};
 
 const stages = [
   ["verifying_reviewed_model", "Reviewed model"],
@@ -88,7 +92,12 @@ function App() {
   const [trace, setTrace] = useState<TraceRow[]>([]);
   const [repair, setRepair] = useState<RepairRecord | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [applyPending, setApplyPending] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<ActiveContext>({ generation: 0, caseId: "humidity_x4", runId: null, repairId: null });
+  const controllersRef = useRef<Set<AbortController>>(new Set());
+  const timersRef = useRef<Set<number>>(new Set());
+  const applyPendingRef = useRef(false);
 
   useEffect(() => {
     Promise.all([
@@ -96,6 +105,9 @@ function App() {
       fetch("/api/devices/bme280").then((r) => { if (!r.ok) throw new Error("Reviewed device unavailable"); return r.json(); }),
     ]).then(([caseData, deviceData]) => { setCases(caseData.cases); setDevice(deviceData); })
       .catch((error) => setLoadError(String(error)));
+    return () => cancelOutstanding();
+    // The catalog request is intentionally a one-time application bootstrap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedCase = useMemo(() => cases.find((item) => item.id === selected), [cases, selected]);
@@ -104,7 +116,48 @@ function App() {
   const apiObservation = run?.result ? Object.entries(run.result.observations || {}).filter(([key]) => key.startsWith("api.")).at(-1) : undefined;
   const latchEvidence = device?.rules.find((rule) => rule.id === "humidity_latch")?.evidence[0];
 
+  function cancelOutstanding() {
+    controllersRef.current.forEach((controller) => controller.abort());
+    controllersRef.current.clear();
+    timersRef.current.forEach((timer) => window.clearTimeout(timer));
+    timersRef.current.clear();
+    applyPendingRef.current = false;
+    setApplyPending(false);
+  }
+
+  function beginGeneration(caseId: string) {
+    cancelOutstanding();
+    const context = nextGeneration(activeRef.current, caseId) as ActiveContext;
+    activeRef.current = context;
+    return context;
+  }
+
+  function requestController() {
+    const controller = new AbortController();
+    controllersRef.current.add(controller);
+    return controller;
+  }
+
+  function releaseController(controller: AbortController) {
+    controllersRef.current.delete(controller);
+  }
+
+  function schedule(callback: () => void) {
+    const timer = window.setTimeout(() => {
+      timersRef.current.delete(timer);
+      callback();
+    }, 180);
+    timersRef.current.add(timer);
+  }
+
+  function reportActiveError(context: ActiveContext, prefix: string, error: unknown) {
+    if (sameGeneration(activeRef.current, context) && !(error instanceof DOMException && error.name === "AbortError")) {
+      setLoadError(`${prefix}${String(error)}`);
+    }
+  }
+
   function chooseCase(caseId: string) {
+    beginGeneration(caseId);
     setSelected(caseId);
     setRun(null);
     setTrace([]);
@@ -112,78 +165,131 @@ function App() {
     setLoadError("");
   }
 
-  async function poll(runId: string) {
-    const response = await fetch(`/api/runs/${runId}`);
-    if (!response.ok) throw new Error("Run status unavailable");
-    const next: Run = await response.json();
-    setRun(next);
-    if (TERMINAL_VERDICTS.has(next.status)) {
-      const traceResponse = await fetch(`/api/runs/${runId}/trace`);
-      const traceData = await traceResponse.json();
-      setTrace(traceData.trace || []);
-      window.setTimeout(() => resultRef.current?.focus({ preventScroll: true }), 0);
-      return;
-    }
-    window.setTimeout(() => poll(runId).catch((error) => setLoadError(String(error))), 180);
+  async function poll(context: ActiveContext) {
+    if (!acceptsRun(activeRef.current, context)) return;
+    const controller = requestController();
+    try {
+      const response = await fetch(`/api/runs/${context.runId}`, { signal: controller.signal });
+      if (!response.ok) throw new Error("Run status unavailable");
+      const next: Run = await response.json();
+      if (!acceptsRun(activeRef.current, context)) return;
+      if (next.id !== context.runId || next.case_id !== context.caseId) throw new Error("Run response identity mismatch");
+      setRun(next);
+      if (TERMINAL_VERDICTS.has(next.status)) {
+        const traceController = requestController();
+        try {
+          const traceResponse = await fetch(`/api/runs/${context.runId}/trace`, { signal: traceController.signal });
+          if (!traceResponse.ok) throw new Error("Run trace unavailable");
+          const traceData = await traceResponse.json();
+          if (!acceptsRun(activeRef.current, context) || traceData.run_id !== context.runId) return;
+          setTrace(traceData.trace || []);
+          schedule(() => { if (acceptsRun(activeRef.current, context)) resultRef.current?.focus({ preventScroll: true }); });
+        } finally { releaseController(traceController); }
+        return;
+      }
+      schedule(() => poll(context).catch((error) => reportActiveError(context, "", error)));
+    } finally { releaseController(controller); }
   }
 
   async function start(caseId = selected) {
+    const context = beginGeneration(caseId);
     setSelected(caseId); setRun(null); setTrace([]); setRepair(null); setLoadError("");
     document.getElementById("verify")?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
-      const response = await fetch(`/api/cases/${caseId}/run`, { method: "POST" });
+      const controller = requestController();
+      const response = await fetch(`/api/cases/${caseId}/run`, { method: "POST", signal: controller.signal });
+      releaseController(controller);
       if (!response.ok) throw new Error(await response.text());
       const created: Run = await response.json();
+      if (!sameGeneration(activeRef.current, context)) return;
+      if (created.case_id !== caseId) throw new Error("Run response case mismatch");
+      const bound = bindRun(activeRef.current, context, created.id) as ActiveContext | null;
+      if (!bound) return;
+      activeRef.current = bound;
       setRun(created);
-      await poll(created.id);
+      await poll(bound);
     } catch (error) {
-      setLoadError(`Could not start verification: ${String(error)}`);
+      reportActiveError(context, "Could not start verification: ", error);
     }
   }
 
-  async function pollRepair(repairId: string) {
-    const response = await fetch(`/api/repairs/${repairId}`);
-    if (!response.ok) throw new Error("Repair status unavailable");
-    const next: RepairRecord = await response.json();
-    setRepair(next);
-    if (["GENERATING", "APPLYING"].includes(next.status)) {
-      window.setTimeout(() => pollRepair(repairId).catch((error) => setLoadError(String(error))), 180);
-    }
+  async function pollRepair(context: ActiveContext) {
+    if (!acceptsRepair(activeRef.current, context)) return;
+    const controller = requestController();
+    try {
+      const response = await fetch(`/api/repairs/${context.repairId}`, { signal: controller.signal });
+      if (!response.ok) throw new Error("Repair status unavailable");
+      const next: RepairRecord = await response.json();
+      if (!acceptsRepair(activeRef.current, context)) return;
+      if (next.id !== context.repairId || next.run_id !== context.runId) throw new Error("Repair response identity mismatch");
+      setRepair(next);
+      if (["GENERATING", "APPLYING"].includes(next.status)) {
+        schedule(() => pollRepair(context).catch((error) => reportActiveError(context, "", error)));
+      } else {
+        applyPendingRef.current = false;
+        setApplyPending(false);
+      }
+    } finally { releaseController(controller); }
   }
 
   async function generateRepair() {
-    if (!run?.id) return;
+    const context = { ...activeRef.current };
+    if (!run?.id || !acceptsRun(activeRef.current, context) || run.id !== context.runId) return;
     setLoadError("");
     try {
-      const response = await fetch(`/api/runs/${run.id}/repair`, { method: "POST" });
+      const controller = requestController();
+      const response = await fetch(`/api/runs/${run.id}/repair`, { method: "POST", signal: controller.signal });
+      releaseController(controller);
       if (!response.ok) throw new Error(await response.text());
       const created: RepairRecord = await response.json();
+      if (!acceptsRun(activeRef.current, context)) return;
+      if (created.run_id !== context.runId) throw new Error("Repair response run mismatch");
+      const bound = bindRepair(activeRef.current, context, created.id) as ActiveContext | null;
+      if (!bound) return;
+      activeRef.current = bound;
       setRepair(created);
-      await pollRepair(created.id);
+      await pollRepair(bound);
     } catch (error) {
-      setLoadError(`Could not generate repair: ${String(error)}`);
+      reportActiveError(context, "Could not generate repair: ", error);
     }
   }
 
   async function applyRepair() {
-    if (!repair?.id) return;
+    const context = { ...activeRef.current };
+    if (!repair?.id || repair.id !== context.repairId ||
+        !canApplyRepair(activeRef.current, context, repair.status, applyPendingRef.current)) return;
+    applyPendingRef.current = true;
+    setApplyPending(true);
     setLoadError("");
     try {
-      const response = await fetch(`/api/repairs/${repair.id}/apply-and-verify`, { method: "POST" });
+      const controller = requestController();
+      const response = await fetch(`/api/repairs/${repair.id}/apply-and-verify`, { method: "POST", signal: controller.signal });
+      releaseController(controller);
       if (!response.ok) throw new Error(await response.text());
       const applying: RepairRecord = await response.json();
+      if (!acceptsRepair(activeRef.current, context)) return;
+      if (applying.id !== context.repairId || applying.run_id !== context.runId) throw new Error("Apply response identity mismatch");
       setRepair(applying);
-      await pollRepair(repair.id);
+      await pollRepair(context);
     } catch (error) {
-      setLoadError(`Could not apply repair: ${String(error)}`);
+      if (acceptsRepair(activeRef.current, context)) {
+        applyPendingRef.current = false;
+        setApplyPending(false);
+      }
+      reportActiveError(context, "Could not apply repair: ", error);
     }
   }
 
   async function discardRepair() {
-    if (!repair?.id) return;
-    const response = await fetch(`/api/repairs/${repair.id}/discard`, { method: "POST" });
+    const context = { ...activeRef.current };
+    if (!repair?.id || !acceptsRepair(activeRef.current, context) || repair.id !== context.repairId) return;
+    const controller = requestController();
+    const response = await fetch(`/api/repairs/${repair.id}/discard`, { method: "POST", signal: controller.signal });
+    releaseController(controller);
+    if (!acceptsRepair(activeRef.current, context)) return;
     if (!response.ok) { setLoadError(`Could not discard repair: ${await response.text()}`); return; }
-    setRepair(await response.json());
+    const discarded: RepairRecord = await response.json();
+    if (discarded.id === context.repairId && discarded.run_id === context.runId) setRepair(discarded);
   }
 
   const groups = ["Flagship", "Failure demo", "Engineering / negative control", "Engineering"];
@@ -312,10 +418,10 @@ function App() {
                 <div className="repair-meta"><div><span>SOURCE</span><code>{repair.request?.source.path}</code></div><div><span>EVIDENCE</span><strong>Page {repair.request?.rule.evidence[0]?.printed_page || repair.request?.rule.evidence[0]?.page} · {repair.request?.rule.evidence[0]?.section}</strong></div><div><span>CHANGED LINES</span><strong>{repair.proposal.changed_lines}</strong></div></div>
                 <div className="diff"><div className="diff-head"><span>UNIFIED DIFF</span><small>Validated before display</small></div><pre>{repair.proposal.unified_diff.split("\n").map((line, index) => <span className={line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "remove" : ""} key={`${index}-${line}`}>{line || " "}</span>)}</pre></div>
                 <p className="preserve-note">Applying this creates a temporary repaired variant. Your original source is preserved.</p>
-                <div className="repair-actions"><button className="button secondary" onClick={discardRepair}>Discard</button><button className="button primary" onClick={applyRepair}>Apply &amp; verify <Icon name="arrow" /></button></div>
+                <div className="repair-actions"><button className="button secondary" onClick={discardRepair} disabled={applyPending}>Discard</button><button className="button primary" onClick={applyRepair} disabled={applyPending}>{applyPending ? "Reserving…" : "Apply & verify"} <Icon name="arrow" /></button></div>
               </div>}
 
-              {repair && ["PATCH_REJECTED", "PROPOSAL_ERROR", "COMPILE_ERROR", "VERIFICATION_FAILED", "VERIFICATION_ERROR"].includes(repair.status) && <div className={`repair-outcome ${repairState.tone}`}><p className="label">{repairState.label}</p><h4>{repair.status === "VERIFICATION_FAILED" ? "The proposal compiled, but did not fix the behavior." : repair.status === "COMPILE_ERROR" ? "The derived driver did not compile." : "GhostChip refused to verify this proposal."}</h4><p>{repair.error || (repair.status === "VERIFICATION_FAILED" ? "The unchanged Scenario still failed after deterministic re-execution." : "The proposal did not cross every safety and execution gate.")}</p></div>}
+              {repair && ["PATCH_REJECTED", "PROPOSAL_ERROR", "COMPILE_ERROR", "VERIFICATION_FAILED", "VERIFICATION_ERROR", "EXPIRED", "INTERRUPTED"].includes(repair.status) && <div className={`repair-outcome ${repairState.tone}`}><p className="label">{repairState.label}</p><h4>{repair.status === "VERIFICATION_FAILED" ? "The proposal compiled, but did not fix the behavior." : repair.status === "COMPILE_ERROR" ? "The derived driver did not compile." : ["EXPIRED", "INTERRUPTED"].includes(repair.status) ? "Generate a new repair after the server restart." : "GhostChip refused to verify this proposal."}</h4><p>{repair.error || (repair.status === "VERIFICATION_FAILED" ? "The unchanged Scenario still failed after deterministic re-execution." : "The proposal did not cross every safety and execution gate.")}</p></div>}
 
               {repair?.status === "VERIFIED" && repair.audit && <div className="repair-verified">
                 <div className="before-after"><div><span>BEFORE</span><strong>FAIL</strong><small>Effective humidity remained disabled</small></div><i>→</i><div><span>AFTER</span><strong>VERIFIED</strong><small>{repair.audit.rerun_result} on identical oracle inputs</small></div></div>

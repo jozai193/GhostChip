@@ -14,6 +14,7 @@ It remains a bounded reviewed proof—not a complete sensor emulator, arbitrary 
 - [ADXL345 generalization and anti-hardcoding audit](docs/generalization.md)
 - [Stage 5 product/API truth boundary](docs/stage5-product.md)
 - [Stage 6 bounded repair boundary](docs/stage6-repair.md)
+- [Stage 7 repair-integrity remediation](docs/stage7-remediation.md)
 - [2–3 minute demo script](docs/demo-script.md)
 
 ## Start the judge-facing product

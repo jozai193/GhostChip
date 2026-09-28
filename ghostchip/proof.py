@@ -18,6 +18,7 @@ import time
 from .runtime import Peripheral
 from .spec import ROOT, load
 from .review import load_review_bundle
+from .integrity import capture_execution_closure
 
 FIXTURE = ROOT / "fixtures/bme280"
 
@@ -83,7 +84,8 @@ def bounded_process(argv, cwd, handler=None, timeout=10, limit=65536):
         proc.stdout.close()
 
 
-def run_fixture(driver, *, spec=None, scenario=None, review_bundle=None, model_origin=None):
+def run_fixture(driver, *, spec=None, scenario=None, review_bundle=None, model_origin=None,
+                hal_root=None):
     if review_bundle is not None:
         bundle = load_review_bundle(review_bundle)
         spec = bundle["reviewed_spec"]
@@ -100,11 +102,12 @@ def run_fixture(driver, *, spec=None, scenario=None, review_bundle=None, model_o
     model = Peripheral(spec)
     for stimulus in scenario.get("initial", []):
         model.stimulate(stimulus["ref"], stimulus["value"], stimulus["basis"])
+    hal_root = Path(hal_root or (ROOT / "examples"))
     result = {"status": "ERROR", "driver": Path(driver).name,
               "model_origin": model_origin, "scenario": scenario["id"],
               "scope": spec["scope"], "driver_sha256": digest(driver),
-              "hal_sha256": digest(ROOT / "examples/gc_hal.c"),
-              "hal_header_sha256": digest(ROOT / "examples/gc_hal.h"),
+              "hal_sha256": digest(hal_root / "gc_hal.c"),
+              "hal_header_sha256": digest(hal_root / "gc_hal.h"),
               "runtime_sha256": digest(ROOT / "ghostchip/runtime.py"),
               "validator_sha256": digest(ROOT / "ghostchip/spec.py"),
               "schema_sha256": digest(ROOT / "schema/devicespec-v1.schema.json"),
@@ -118,18 +121,17 @@ def run_fixture(driver, *, spec=None, scenario=None, review_bundle=None, model_o
             compiler = shutil.which("gcc")
             if not compiler:
                 raise RuntimeError("gcc is required")
-            flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-O0", "-I", str(ROOT / "examples")]
-            version = subprocess.run([compiler, "--version"], capture_output=True, text=True,
-                                     check=True, timeout=5).stdout.splitlines()[0]
-            target = subprocess.run([compiler, "-dumpmachine"], capture_output=True, text=True,
-                                    check=True, timeout=5).stdout.strip()
+            closure = capture_execution_closure(ROOT, compiler)
+            result["execution_closure"] = closure
+            logical_flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-O0", "-I", "examples"]
+            command_flags = [*logical_flags[:-1], str(hal_root)]
+            compiler_identity = closure["compiler"]
             result["build"] = {
                 "compiler_configuration": {
-                    "path": str(Path(compiler).resolve()), "version": version,
-                    "target": target, "flags": flags,
+                    **compiler_identity, "flags": logical_flags,
                 },
             }
-            command = [compiler, *flags, str(driver), str(ROOT / "examples/gc_hal.c"), "-o", exe]
+            command = [compiler, *command_flags, str(driver), str(hal_root / "gc_hal.c"), "-o", exe]
             code, log = bounded_process(command, temp, timeout=20)
             if code:
                 raise RuntimeError("Compilation failed: " + log)
