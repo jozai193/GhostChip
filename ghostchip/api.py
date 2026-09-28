@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .presentation import (cases, device_detail, devices, run_demo_case,
                            serialize_trace, summarize_result)
+from .repair import RepairError, RepairStore
 from .spec import ROOT
 
 
@@ -79,15 +80,17 @@ def _record_response(record):
     return response
 
 
-def create_app(*, store=None, static_dir=None):
-    app = FastAPI(title="GhostChip Demo API", version="5.0.0",
+def create_app(*, store=None, repair_store=None, repair_provider=None, static_dir=None):
+    app = FastAPI(title="GhostChip Demo API", version="6.0.0",
                   description="Curated local wrapper around the deterministic GhostChip engine.")
     run_store = store or RunStore()
+    repairs = repair_store or RepairStore(run_store, provider=repair_provider)
     static = Path(static_dir or ROOT / "web/out")
 
     @app.get("/api/health")
     def health():
-        return {"status": "ready", "engine": "GhostChip", "remote_code_execution": False}
+        return {"status": "ready", "engine": "GhostChip", "remote_code_execution": False,
+                "repair_provider": "local-demo", "live_ai_configured": False}
 
     @app.get("/api/devices")
     def list_devices():
@@ -152,6 +155,44 @@ def create_app(*, store=None, static_dir=None):
         return {"run_id": run_id, "status": record["status"], "evidence": evidence,
                 "review_bundle": result.get("review_bundle"),
                 "source_identity": result.get("build") or {}}
+
+    @app.post("/api/runs/{run_id}/repair", status_code=202)
+    def generate_repair(run_id: str, background: BackgroundTasks):
+        try:
+            record = repairs.create(run_id)
+        except KeyError:
+            raise HTTPException(404, "Unknown run") from None
+        except RepairError as exc:
+            raise HTTPException(409, str(exc)) from None
+        background.add_task(repairs.generate, record["id"])
+        return record
+
+    @app.get("/api/repairs/{repair_id}")
+    def get_repair(repair_id: str):
+        try:
+            return repairs.get(repair_id)
+        except KeyError:
+            raise HTTPException(404, "Unknown repair") from None
+
+    @app.post("/api/repairs/{repair_id}/apply-and-verify", status_code=202)
+    def apply_repair(repair_id: str, background: BackgroundTasks):
+        try:
+            record = repairs.get(repair_id)
+        except KeyError:
+            raise HTTPException(404, "Unknown repair") from None
+        if record["status"] != "PROPOSED":
+            raise HTTPException(409, "Only a validated proposal can be applied")
+        background.add_task(repairs.apply_and_verify, repair_id)
+        return {**record, "status": "APPLYING"}
+
+    @app.post("/api/repairs/{repair_id}/discard")
+    def discard_repair(repair_id: str):
+        try:
+            return repairs.discard(repair_id)
+        except KeyError:
+            raise HTTPException(404, "Unknown repair") from None
+        except RepairError as exc:
+            raise HTTPException(409, str(exc)) from None
 
     if static.exists():
         assets = static / "_next"

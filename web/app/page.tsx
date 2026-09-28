@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { assertionSummary, TERMINAL_VERDICTS, visualVerdict } from "../lib/verdict.mjs";
+import { assertionSummary, repairVisualState, TERMINAL_VERDICTS, visualVerdict } from "../lib/verdict.mjs";
 
 type CaseMeta = {
   id: string; label: string; group: string; expected: "PASS" | "FAIL";
@@ -35,6 +35,26 @@ type TraceRow = {
   register_address?: number; label?: string; length?: number; duration_us?: number;
   value?: number; rules_triggered?: string[];
 };
+type RepairRecord = {
+  id: string; run_id: string; status: string; error?: string; error_code?: string;
+  events: RunEvent[];
+  proposal?: {
+    explanation: string; unified_diff: string; changed_lines: number;
+    request_sha256: string; response_sha256: string; patch_sha256: string;
+    resulting_source_sha256: string; provider: { id: string; kind: "local_demo" | "live_ai" | "test"; model: string };
+  };
+  request?: {
+    sha256: string; failure: { assertion_ids: string[]; expected: unknown; observed: unknown; summary: string };
+    rule: { id: string; evidence: Evidence[] };
+    source: { path: string; sha256: string; start_line: number; end_line: number };
+    identities: { reviewed_bundle: Record<string, string>; scenario_sha256: string; spec_sha256: string };
+  };
+  audit?: {
+    original_source_sha256: string; resulting_source_sha256: string; executable_sha256: string;
+    scenario_sha256: string; rerun_result: string; original_source_preserved: boolean;
+    identity_checks: Record<string, boolean>; provider: { kind: string; id: string; model: string };
+  };
+};
 
 const stages = [
   ["verifying_reviewed_model", "Reviewed model"],
@@ -66,6 +86,7 @@ function App() {
   const [selected, setSelected] = useState("humidity_x4");
   const [run, setRun] = useState<Run | null>(null);
   const [trace, setTrace] = useState<TraceRow[]>([]);
+  const [repair, setRepair] = useState<RepairRecord | null>(null);
   const [loadError, setLoadError] = useState("");
   const resultRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +108,7 @@ function App() {
     setSelected(caseId);
     setRun(null);
     setTrace([]);
+    setRepair(null);
     setLoadError("");
   }
 
@@ -106,7 +128,7 @@ function App() {
   }
 
   async function start(caseId = selected) {
-    setSelected(caseId); setRun(null); setTrace([]); setLoadError("");
+    setSelected(caseId); setRun(null); setTrace([]); setRepair(null); setLoadError("");
     document.getElementById("verify")?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const response = await fetch(`/api/cases/${caseId}/run`, { method: "POST" });
@@ -119,8 +141,55 @@ function App() {
     }
   }
 
+  async function pollRepair(repairId: string) {
+    const response = await fetch(`/api/repairs/${repairId}`);
+    if (!response.ok) throw new Error("Repair status unavailable");
+    const next: RepairRecord = await response.json();
+    setRepair(next);
+    if (["GENERATING", "APPLYING"].includes(next.status)) {
+      window.setTimeout(() => pollRepair(repairId).catch((error) => setLoadError(String(error))), 180);
+    }
+  }
+
+  async function generateRepair() {
+    if (!run?.id) return;
+    setLoadError("");
+    try {
+      const response = await fetch(`/api/runs/${run.id}/repair`, { method: "POST" });
+      if (!response.ok) throw new Error(await response.text());
+      const created: RepairRecord = await response.json();
+      setRepair(created);
+      await pollRepair(created.id);
+    } catch (error) {
+      setLoadError(`Could not generate repair: ${String(error)}`);
+    }
+  }
+
+  async function applyRepair() {
+    if (!repair?.id) return;
+    setLoadError("");
+    try {
+      const response = await fetch(`/api/repairs/${repair.id}/apply-and-verify`, { method: "POST" });
+      if (!response.ok) throw new Error(await response.text());
+      const applying: RepairRecord = await response.json();
+      setRepair(applying);
+      await pollRepair(repair.id);
+    } catch (error) {
+      setLoadError(`Could not apply repair: ${String(error)}`);
+    }
+  }
+
+  async function discardRepair() {
+    if (!repair?.id) return;
+    const response = await fetch(`/api/repairs/${repair.id}/discard`, { method: "POST" });
+    if (!response.ok) { setLoadError(`Could not discard repair: ${await response.text()}`); return; }
+    setRepair(await response.json());
+  }
+
   const groups = ["Flagship", "Failure demo", "Engineering / negative control", "Engineering"];
   const activeEvents = new Map((run?.events || []).map((event) => [event.stage, event]));
+  const repairState = repairVisualState(repair?.status || "READY");
+  const providerIsLive = repair?.proposal?.provider.kind === "live_ai";
 
   return <main>
     <nav className="nav shell" aria-label="Primary navigation">
@@ -232,6 +301,31 @@ function App() {
               {run.result.failure_explanation?.translation && <blockquote>{run.result.failure_explanation.translation}</blockquote>}
               {latchEvidence && <div className="failure-source"><span>DATASHEET EVIDENCE</span><strong>Bosch BME280 · Page {latchEvidence.printed_page || latchEvidence.page} · {latchEvidence.section}</strong></div>}
             </div>}
+            {run.result.status === "FAIL" && run.case_id === "buggy_driver" && <div className="repair-workflow">
+              {!repair && <div className="repair-entry"><div><p className="label">BOUNDED REPAIR</p><h4>Propose a driver-only change</h4><p>GhostChip will send only this failure, its trace, the reviewed rule, bounded evidence, and the controlled driver source to the configured provider.</p></div><button className="button repair-button" onClick={generateRepair}>Generate repair <Icon name="arrow" /></button></div>}
+
+              {repair && ["GENERATING", "APPLYING"].includes(repair.status) && <div className="repair-loading" aria-live="polite"><span className="repair-spinner" /><div><p className="label">{repair.status === "GENERATING" ? "GENERATING PROPOSAL" : "APPLYING TO DERIVED SOURCE"}</p><h4>{repair.events.at(-1)?.detail || "Validating the bounded repair workflow…"}</h4><p>{repair.status === "APPLYING" ? "GhostChip is recompiling and rerunning the identical reviewed model and Scenario." : "No proposal can modify the model, Scenario, evidence, verifier, tests, or Bosch source."}</p></div></div>}
+
+              {repair?.status === "PROPOSED" && repair.proposal && <div className="repair-panel">
+                <div className="repair-panel-head"><div><p className="label">REPAIR PROPOSAL · NOT YET VERIFIED</p><h4>One bounded source change</h4></div><span className={providerIsLive ? "provider live" : "provider local"}>{providerIsLive ? "LIVE AI PROVIDER" : "OFFLINE DEMO PROVIDER · NOT AI"}</span></div>
+                <div className="repair-explain"><div><span>WHY THIS FAILED</span><p>{repair.request?.failure.summary}</p></div><div><span>WHAT THE REPAIR CHANGES</span><p>{repair.proposal.explanation}</p></div></div>
+                <div className="repair-meta"><div><span>SOURCE</span><code>{repair.request?.source.path}</code></div><div><span>EVIDENCE</span><strong>Page {repair.request?.rule.evidence[0]?.printed_page || repair.request?.rule.evidence[0]?.page} · {repair.request?.rule.evidence[0]?.section}</strong></div><div><span>CHANGED LINES</span><strong>{repair.proposal.changed_lines}</strong></div></div>
+                <div className="diff"><div className="diff-head"><span>UNIFIED DIFF</span><small>Validated before display</small></div><pre>{repair.proposal.unified_diff.split("\n").map((line, index) => <span className={line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "remove" : ""} key={`${index}-${line}`}>{line || " "}</span>)}</pre></div>
+                <p className="preserve-note">Applying this creates a temporary repaired variant. Your original source is preserved.</p>
+                <div className="repair-actions"><button className="button secondary" onClick={discardRepair}>Discard</button><button className="button primary" onClick={applyRepair}>Apply &amp; verify <Icon name="arrow" /></button></div>
+              </div>}
+
+              {repair && ["PATCH_REJECTED", "PROPOSAL_ERROR", "COMPILE_ERROR", "VERIFICATION_FAILED", "VERIFICATION_ERROR"].includes(repair.status) && <div className={`repair-outcome ${repairState.tone}`}><p className="label">{repairState.label}</p><h4>{repair.status === "VERIFICATION_FAILED" ? "The proposal compiled, but did not fix the behavior." : repair.status === "COMPILE_ERROR" ? "The derived driver did not compile." : "GhostChip refused to verify this proposal."}</h4><p>{repair.error || (repair.status === "VERIFICATION_FAILED" ? "The unchanged Scenario still failed after deterministic re-execution." : "The proposal did not cross every safety and execution gate.")}</p></div>}
+
+              {repair?.status === "VERIFIED" && repair.audit && <div className="repair-verified">
+                <div className="before-after"><div><span>BEFORE</span><strong>FAIL</strong><small>Effective humidity remained disabled</small></div><i>→</i><div><span>AFTER</span><strong>VERIFIED</strong><small>{repair.audit.rerun_result} on identical oracle inputs</small></div></div>
+                <h4>{providerIsLive ? "The AI proposed the patch. GhostChip independently verified it." : "The offline demo provider proposed the patch. GhostChip independently verified it."}</h4>
+                <p>The derived driver was recompiled and rerun against the same reviewed model and Scenario. The original source was preserved.</p>
+                <details><summary>Repair audit record <span>+</span></summary><dl className="report-grid"><div><dt>Original source</dt><dd><Hash value={repair.audit.original_source_sha256} /></dd></div><div><dt>Derived source</dt><dd><Hash value={repair.audit.resulting_source_sha256} /></dd></div><div><dt>Executable</dt><dd><Hash value={repair.audit.executable_sha256} /></dd></div><div><dt>Scenario</dt><dd><Hash value={repair.audit.scenario_sha256} /></dd></div><div><dt>Identity checks</dt><dd>{Object.values(repair.audit.identity_checks).every(Boolean) ? "ALL MATCH" : "MISMATCH"}</dd></div><div><dt>Original preserved</dt><dd>{repair.audit.original_source_preserved ? "YES" : "NO"}</dd></div></dl></details>
+              </div>}
+
+              {repair?.status === "DISCARDED" && <div className="repair-outcome neutral"><p className="label">DISCARDED</p><h4>No repair was applied.</h4><p>The original source remains unchanged.</p></div>}
+            </div>}
             {run.result.status === "ERROR" && <div className="error-card"><p className="label">EXECUTION ERROR — NOT A DRIVER FAILURE</p><h4>GhostChip could not produce a verdict.</h4><p>{run.result.error || "The runner returned malformed or incomplete output."}</p></div>}
 
             <div className="assertions">
@@ -314,7 +408,7 @@ function App() {
     </>}
 
     {loadError && <div className="toast" role="alert"><strong>ERROR</strong>{loadError}</div>}
-    <footer><div className="shell"><div className="brand"><span className="mark"><i /><i /></span>GhostChip</div><p>Test embedded drivers before the hardware arrives.</p><span>Stage 5 · Judge demo</span></div></footer>
+    <footer><div className="shell"><div className="brand"><span className="mark"><i /><i /></span>GhostChip</div><p>Test embedded drivers before the hardware arrives.</p><span>Stage 6 · Repair proof</span></div></footer>
   </main>;
 }
 

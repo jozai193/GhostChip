@@ -10,6 +10,7 @@ from pathlib import Path
 import resource
 import selectors
 import signal
+import shutil
 import subprocess
 import tempfile
 import time
@@ -114,11 +115,25 @@ def run_fixture(driver, *, spec=None, scenario=None, review_bundle=None, model_o
     try:
         with tempfile.TemporaryDirectory(prefix="ghostchip-") as temp:
             exe = str(Path(temp) / "driver")
-            code, log = bounded_process(["gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                                         "-O0", "-I", str(ROOT / "examples"), str(driver),
-                                         str(ROOT / "examples/gc_hal.c"), "-o", exe], temp, timeout=20)
+            compiler = shutil.which("gcc")
+            if not compiler:
+                raise RuntimeError("gcc is required")
+            flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-O0", "-I", str(ROOT / "examples")]
+            version = subprocess.run([compiler, "--version"], capture_output=True, text=True,
+                                     check=True, timeout=5).stdout.splitlines()[0]
+            target = subprocess.run([compiler, "-dumpmachine"], capture_output=True, text=True,
+                                    check=True, timeout=5).stdout.strip()
+            result["build"] = {
+                "compiler_configuration": {
+                    "path": str(Path(compiler).resolve()), "version": version,
+                    "target": target, "flags": flags,
+                },
+            }
+            command = [compiler, *flags, str(driver), str(ROOT / "examples/gc_hal.c"), "-o", exe]
+            code, log = bounded_process(command, temp, timeout=20)
             if code:
                 raise RuntimeError("Compilation failed: " + log)
+            result["build"]["executable_sha256"] = digest(exe)
 
             def handle(line):
                 if len(model.trace) >= 128:

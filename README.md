@@ -1,6 +1,6 @@
 # GhostChip — test embedded drivers before the hardware arrives
 
-GhostChip compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual read, write, and delay callbacks to a reviewed bounded virtual peripheral. The Stage 5 judge interface makes that proof visible: reviewed datasheet rules, source identity, real callback traces, deterministic PASS/FAIL/ERROR outcomes, the original buggy-driver failure, and limited ADXL345 generalization evidence.
+GhostChip compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual read, write, and delay callbacks to a reviewed bounded virtual peripheral. The Stage 6 judge interface makes that proof visible and adds a bounded repair loop for the curated BME280 fixture: inspect a proposal, approve it explicitly, then let the deterministic engine recompile and rerun the identical oracle inputs before showing VERIFIED.
 
 It remains a bounded reviewed proof—not a complete sensor emulator, arbitrary driver platform, silicon-equivalent model, or remote code-execution service.
 
@@ -13,6 +13,7 @@ It remains a bounded reviewed proof—not a complete sensor emulator, arbitrary 
 - [Extraction boundary and artifacts](docs/extraction.md)
 - [ADXL345 generalization and anti-hardcoding audit](docs/generalization.md)
 - [Stage 5 product/API truth boundary](docs/stage5-product.md)
+- [Stage 6 bounded repair boundary](docs/stage6-repair.md)
 - [2–3 minute demo script](docs/demo-script.md)
 
 ## Start the judge-facing product
@@ -31,7 +32,7 @@ The deterministic readiness and full UI/API/real-driver smoke gate is:
 python3 -m ghostchip.demo --check --smoke
 ```
 
-It checks required files and Python packages, GCC, the static frontend, exact Bosch hashes, the landing/API path, a fresh `humidity_x4` build and execution, its trace, and evidence serialization.
+It checks required files and Python packages, GCC, the static frontend, exact Bosch hashes, the landing/API path, a fresh `humidity_x4` build and execution, its trace and evidence, then the full curated buggy-driver **FAIL → proposal → explicit apply → deterministic VERIFIED** path.
 
 ## Run tests on this Windows machine
 
@@ -129,6 +130,6 @@ Explicit manual inputs: which register slice to model, the board-selected 0x76 a
 
 Implemented: bounded PDF ingestion, source-layout extraction for reviewed slices, execution-time review-bundle verification, strict DeviceSpec/Scenario/FaultPlan validation, byte registers, internal state, bounded incrementing reads, explicit virtual delay/settle time, parameterized instance bytes, callback faults, typed API observations, pristine Bosch core compilation, build/source identity, and deterministic scenario evaluation.
 
-Not implemented: general arbitrary-datasheet or LLM extraction, automated repair, arbitrary vendor SDKs, real I²C/SPI signaling, measurement/compensation, MCU emulation, remote uploads, multi-user accounts, or public deployment. The deterministic source-layout adapters are device-document-specific; their candidates must pass one shared validator/reviewer/runtime. The adapter never supplies sensor bytes or canned API results; those come from reviewed model, instance, and FaultPlan inputs. The frontend presents backend artifacts and cannot manufacture a verdict.
+Not implemented: general arbitrary-datasheet or LLM extraction, arbitrary-repository repair, a shipped live-AI provider, autonomous patch application, arbitrary vendor SDKs, real I²C/SPI signaling, measurement/compensation, MCU emulation, remote uploads, multi-user accounts, or public deployment. Stage 6 ships a provider interface and a visibly labeled offline deterministic demo provider that is **not AI**. Its single-file patch can affect only `examples/bme280_buggy.c`; it cannot alter the DeviceSpec, Scenario, evidence, assertions, tests, verifier, or pristine Bosch source. The frontend presents backend artifacts and cannot manufacture a verdict.
 
 Run only trusted code with this local runner. Its subprocess limits are not filesystem/network isolation. No remote repository or product deployment was created. Original project code is newly authored; no project distribution license has been selected. The vendor PDF remains vendor material and dependencies retain their licenses.

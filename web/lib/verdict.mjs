@@ -12,3 +12,13 @@ export function assertionSummary(result) {
   const passed = Number(result?.assertion_passed || 0);
   return { total, passed, text: `${passed}/${total} scenario assertions` };
 }
+
+export function repairVisualState(status) {
+  if (status === "VERIFIED") return { label: "VERIFIED REPAIR", tone: "pass" };
+  if (status === "VERIFICATION_FAILED") return { label: "VERIFICATION FAILED", tone: "fail" };
+  if (status === "COMPILE_ERROR") return { label: "COMPILE ERROR", tone: "error" };
+  if (status === "PATCH_REJECTED") return { label: "PATCH REJECTED", tone: "error" };
+  if (status === "PROPOSAL_ERROR") return { label: "PROPOSAL ERROR", tone: "error" };
+  if (status === "VERIFICATION_ERROR") return { label: "VERIFICATION ERROR", tone: "error" };
+  return { label: status, tone: "pending" };
+}

@@ -1,4 +1,4 @@
-# Verification record — Stages 4 and 5
+# Verification record — Stages 4–6
 
 Environment: Ubuntu WSL, Python 3.12.3, GCC 13.3.0 targeting `x86_64-linux-gnu`, jsonschema 4.10.3, pypdf 6.1.1 and cryptography 50.0.1. Every real-driver run creates a fresh immutable staged source tree and executable.
 
@@ -77,3 +77,28 @@ The documented PowerShell launcher was exercised end to end. It built the curren
 Final clean-source reproduction excluded Git state, virtual environments, Node modules, generated frontend output, artifacts and PDFs. It produced **65 passes plus exactly four optional-PDF skips** across 69 methods, then reproduced the original BME280 FAIL→PASS pair and all seven Stage 4 Bosch outcomes, including the expected negative-control FAIL.
 
 Stage 5 does not alter the Stage 4 claim boundary. UI labels and explanations are not model semantics, and no frontend code determines verification results.
+
+## Stage 6 bounded repair gate — 2026-09-28
+
+The complete Python suite now contains **85 test methods** and passed with both optional pinned PDFs available. The 16 Stage 6 tests cover request schema/minimality, failed-run and evidence binding, strict unified diff application, non-diff preamble rejection, path traversal, oracle and Bosch-source rejection, file-list agreement, byte/changed-line bounds, derived-source creation, original-source preservation, correct and incorrect reruns, compile failure, provider timeout/unavailable/malformed output, discard, API FAIL → proposal → VERIFIED mapping, and API provider-failure mapping without an audit or VERIFIED state.
+
+Measured Stage 6 results:
+
+- the offline local-demo patch changed two lines in `examples/bme280_buggy.c`, produced a distinct derived-source hash and executable hash, preserved the original hash, matched every recorded oracle identity, and reran **PASS → final VERIFIED**;
+- a valid but behaviorally ineffective comment-only patch compiled and reran **FAIL → final VERIFICATION_FAILED**;
+- invalid C produced **COMPILE_ERROR**, distinct from behavioral failure;
+- an attempted `fixtures/bme280/scenario.json` assertion/oracle edit and an attempted `third_party/bosch_bme280/bme280.c` edit were rejected before application;
+- timeout, malformed response, and unavailable provider became `PROVIDER_TIMEOUT`, `MALFORMED_PROVIDER_RESPONSE`, and `PROVIDER_UNAVAILABLE`; none could become VERIFIED.
+
+Frontend verification:
+
+- `npm test`: **3/3 passed**, including distinct proposal, patch-rejection, compile-error, verification-failure, and VERIFIED visual states.
+- `npm run build`: Next.js 16.3.6 production static export compiled and type-checked successfully.
+- Playwright CLI exercised the real local flow from `buggy_driver` **FAIL (1/2, 4 callbacks)** through **OFFLINE DEMO PROVIDER · NOT AI**, visible validated diff, explicit **Apply & verify**, and **BEFORE FAIL → AFTER VERIFIED**. The audit drawer reported `ALL MATCH` and original source `YES`.
+- The verified flow remained semantically reachable at 390×844; the browser console reported zero warnings and zero errors. Full-page proposal and verified screenshots were captured under ignored `output/playwright/`.
+
+`python -m ghostchip.demo --check --smoke` now covers the complete repair path in addition to the Stage 5 product/real-driver gate. It returned `bosch_source: VERIFIED`, `flagship: PASS`, and `repair: VERIFIED`.
+
+Final clean-source reproduction copied no Git state, virtual environments, Node modules, generated frontend output, artifacts, or PDFs. It ran all **85 methods: 81 passed and exactly four optional-PDF tests skipped**, reproduced the legacy BME280 FAIL→PASS pair, and rebuilt all seven Bosch cases with the expected six PASS results plus the documented unreviewed negative-control FAIL.
+
+Stage 6 does not expand the physical-fidelity claim. The shipped provider is a deterministic offline demo fixture, not AI; no live provider is configured. Verification means that a derived driver passed the unchanged reviewed model and Scenario under recorded matching identities.

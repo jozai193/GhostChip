@@ -1,6 +1,6 @@
 # GhostChip architecture audit — 2026-09-27
 
-Decision: the bounded execution proof remains valid, and a page-preserving BME280 extraction slice now feeds it. Stage 5 adds a thin judge-facing presentation layer without changing the deterministic core. The architecture is viable for a reviewed, partial peripheral model. Reliable automatic interpretation of arbitrary datasheets remains unproven.
+Decision: the bounded execution proof remains valid, and a page-preserving BME280 extraction slice now feeds it. Stage 5 added a thin judge-facing presentation layer; Stage 6 adds a driver-only proposal layer without changing the deterministic core. The architecture is viable for a reviewed, partial peripheral model. Reliable automatic interpretation of arbitrary datasheets remains unproven.
 
 The full supplied brief (sections 0–36 and introductory material) was read. Its priorities are sensible, but its proposed scope combines several separate research and engineering risks. A broad package tree, API, database and UI would conceal those risks before resolving them.
 
@@ -16,7 +16,11 @@ Compiled C fixture ↔ synchronous HAL RPC ↔ generic register runtime
                         trace + final modeled state + separate Scenario contract
                                                         ↓
                               deterministic PASS / FAIL / ERROR
-Later: failure + evidence → proposed patch → same model and scenario → rerun
+Stage 6: failed immutable run → bounded request → provider proposal → patch validation
+                                      ↓ explicit user apply
+                    derived driver → compile → identical model/scenario rerun
+                                      ↓
+                         VERIFIED only on deterministic PASS
 ```
 
 ## Stage 5 application layer
@@ -32,6 +36,14 @@ actual result artifact → summary / trace / evidence projections
 ```
 
 `ghostchip.presentation` adds readable labels and explanations only. Device/rule counts, evidence pages, review status, upstream identity, hashes, assertions, callbacks, elapsed time and verdicts come from reviewed artifacts or fresh executions. `ghostchip.api` exposes a curated allowlist; there is no upload, source parameter, shell command, authentication layer, queue, or arbitrary-code endpoint. Generated run records are local ignored artifacts under `artifacts/demo-runs/`.
+
+## Stage 6 repair layer
+
+`ghostchip.repair` owns the repair schemas, provider interface, path/diff validator, derived-source storage, rerun orchestration, and audit record. The only shipped provider is `LocalDemoRepairProvider`: a deterministic offline demonstration fixture clearly labeled **not AI**. The interface can accept a future live provider without giving that provider authority over a verdict.
+
+The request is bound to one immutable failed `buggy_driver` run and contains only its source, failed assertion, callback/register trace, accepted `humidity_latch` rule, page-bounded evidence, Scenario intent, identities, and constraints. Patch validation permits exactly `examples/bme280_buggy.c`, four changed lines, and 4096 diff bytes. It rejects traversal, binary/rename/create/delete operations, multiple files, and every oracle or vendor path before the diff is displayed.
+
+Apply creates an ignored derived artifact under `artifacts/demo-repairs/`; it never overwrites the fixture. Re-execution uses the same reviewed bundle and Scenario, records compiler configuration and executable identity, and compares the reviewed bundle, DeviceSpec, Scenario, compiler configuration, instance, and FaultPlan identities. Provider confidence is metadata only. A proposal becomes VERIFIED only when those checks match and the deterministic rerun returns PASS.
 
 The static Next.js export is served by FastAPI on the same origin. This avoids a second runtime service during the demo and requires no browser-time network dependency. The Windows launcher uses Node 20.9+ for the build and Ubuntu WSL for Python/GCC execution.
 

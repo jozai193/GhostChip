@@ -1,6 +1,6 @@
 # Implementation plan — gated, not authorization to continue
 
-Gates 0–3, including the bounded BME280 extraction and ADXL345 generalization milestones, are complete. Effort estimates below are focused engineering hours, not delivery promises; team availability, model/API access and hosting budget have not been assumed. Event deadline is October 5, 2026, 09:15 IST. Stop or narrow if the remaining gates cannot fit actual capacity.
+Gates 0–7, including the bounded BME280 extraction, ADXL345 generalization, Bosch integration, judge UI, and curated repair workflow, are complete. Effort estimates below are focused engineering hours, not delivery promises; team availability, model/API access and hosting budget have not been assumed. Event deadline is October 5, 2026, 09:15 IST.
 
 | Gate | Scope and dependencies | Exit evidence / decision | Estimate |
 |---|---|---|---|
@@ -11,10 +11,10 @@ Gates 0–3, including the bounded BME280 extraction and ADXL345 generalization 
 | 4 — done | Integrate the pinned Bosch BME280 SensorAPI using its documented read/write/delay callbacks, including wrong-ID and callback-failure branches. | Pristine core hashes verified; all mandatory cases and negative controls pass; compiler, closure, binary, model, scenario, instance and fault identities are recorded. | Completed |
 | 5 — CLI slice done | End-to-end orchestration for PDF → candidate → accepted model → fixture driver → result. API/database remain deferred. | CLI path runs without a hidden model edit; unreviewed models cannot execute and changed candidates invalidate review. Real-driver orchestration still depends on gate 4. | Partial |
 | 6 — done (Stage 5) | Minimal UI over genuine artifacts: source/rules, source identity, trace, failure/pass/error, curated reruns. | A new viewer can identify the failure, evidence and changed effective setting without opening code. Production build, 1440px and 390px browser checks, real PASS and FAIL flows, and smoke test passed. | Completed |
-| 7 | Optional repair suggestion. Depends on stable failure artifacts. A deterministic prewritten diff is acceptable if clearly labeled. | User can inspect patch; identical model/scenario rerun; test weakening cannot produce “verified repair.” | 3–5 h |
-| 8 | Reproducibility and presentation. | Clean environment, accessible deployment and real browser checks, short demo video, build-period/license disclosure; all claims match capabilities. | 6–8 h |
+| 7 — done (Stage 6) | Bounded repair suggestion over one stable failure artifact, with a deterministic provider clearly labeled not AI. | User inspects the patch; explicit approval creates only derived source; identical model/Scenario rerun; test weakening and Bosch modification reject; VERIFIED requires deterministic PASS. | Completed |
+| 8 — milestone checks done; submission open | Reproducibility and presentation. | Clean-source reproduction, real browser checks, concise demo script, build-period/license disclosure; public deployment/video/submission remain separate authorized work. | Partial |
 
-Stop after Stage 5. Recommended Stage 6 scope is a bounded, inspectable repair proposal for the original trusted buggy fixture: failure artifact + source + exact reviewed evidence → unified diff → explicit user apply → identical model/Scenario rerun. It must never weaken the model or tests, and it must not overwrite source silently. An independent hardware/reference fidelity check remains the highest claim-risk gate before final submission, but it is separate from Stage 6 product work. Arbitrary uploads, SPI, broad timing, accounts and collaboration remain out of scope.
+Stop after Stage 6. Stage 7 is reserved for an independent adversarial audit. An independent hardware/reference fidelity check remains the highest claim-risk gate before final submission, but it is separate from this product milestone. Arbitrary uploads, SPI, broad timing, accounts, collaboration, autonomous repair, and general repository patching remain out of scope.
 
 ## Proposed second reference device: ADXL345
 

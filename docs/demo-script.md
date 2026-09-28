@@ -1,48 +1,53 @@
-# GhostChip 2–3 minute demo script
+# GhostChip 2:30 demo script
 
-## 0:00–0:20 — the problem
+## 0:00–0:15 — the problem
 
 Open the landing screen.
 
-> Embedded drivers can compile and pass shallow mocks while still violating one sentence hidden deep in a datasheet. GhostChip tests that behavior before the hardware arrives.
+> Drivers can compile while still violating behavioral rules hidden in datasheets. GhostChip tests those rules before the hardware arrives.
 
-Point to the one-line mechanism and click **Run BME280 demo**.
+## 0:15–0:35 — evidence and identity
 
-## 0:20–1:05 — the real flagship run
+Show the BME280 model card: the reviewed humidity-latch rule, datasheet pages 27–28, bounded coverage, and model hash. Briefly show Bosch's pristine source identity.
 
-As the backend runs, name only the completed stages: reviewed-model reconstruction, pinned Bosch source verification, compilation, virtual BME280 startup, callbacks and assertions. Do not pause for theatrical timing.
+> This is a reviewed behavioral rule and a pinned source identity—not a claim that the whole chip has been modeled.
 
-On **VERIFIED**, point out:
+## 0:35–0:55 — run the buggy driver
 
-- the actual assertion count;
-- the Bosch API return;
-- callback count and measured elapsed time;
-- the trace sequence: ID, reset, 2,000 us delay, status, calibration banks, then humidity-control and latch writes.
+Choose **Original buggy driver** and run it. Name the four real register operations as they appear.
 
-> This is Bosch's unchanged SensorAPI core at pinned commit `c90d419…`, not a driver written for the demo.
+## 0:55–1:15 — deterministic FAIL
 
-## 1:05–1:45 — make the failure obvious
+> The driver requested humidity x4 and read the register back successfully. But the setting becomes effective only after a later `ctrl_meas` write. That write is missing, so GhostChip reports FAIL—not a compiler error.
 
-Choose **Original buggy driver** and run it.
+Point to expected 3, observed 0, the failed assertion, callback/register trace, and cited rule.
 
-> The driver requested humidity x4 and even read the register back successfully. But the datasheet says the setting becomes effective only after a later `ctrl_meas` write. That write is missing, so GhostChip reports FAIL—not a compiler error.
+## 1:15–1:35 — generate and inspect
 
-Point to Expected, Observed, the plain-English translation, the two assertions and the short trace.
+Click **Generate repair**. Show the provider badge, explanation, target file, evidence, and two-line ordering diff.
 
-## 1:45–2:15 — prove it is evidence-backed
+> This proposal came from the offline demo provider, not AI. The provider interface supports replacement, but no proposal is trusted as correct.
 
-Scroll to the BME280 model card. Show the reviewed latch rule, page/section, explicit limitations and expandable identity. Show the real-driver card: unchanged core, commit, BSD-3-Clause, source integrity verified.
+## 1:35–1:55 — approve and verify
 
-> The model is bounded and reviewed. We do not claim GhostChip understands every datasheet or matches physical silicon.
+Read the preservation notice, then click **Apply & verify**.
 
-## 2:15–2:35 — limited generalization and boundary
+> GhostChip applies this only to a derived source artifact, recompiles it, and reruns the same reviewed model and Scenario. The original source is preserved.
 
-Show the ADXL345 card.
+## 1:55–2:10 — VERIFIED
 
-> A second device exercises read side-effects and FIFO state rather than the BME280 latch. The runtime has no ADXL-specific branch, although extraction still uses a device-document-specific adapter.
+Show BEFORE FAIL → AFTER VERIFIED, then open the audit details to show matching identities and distinct source/executable hashes.
 
-Finish on **How automatic is this?** Distinguish deterministic automation from reviewed/manual choices.
+> The provider proposed the patch. GhostChip independently verified it by recompiling and rerunning the driver against the same reviewed model.
+
+## 2:10–2:20 — breadth, briefly
+
+Point to the pristine Bosch real-driver evidence and the ADXL345 second-device card. Do not run either.
+
+## 2:20–2:30 — close
+
+> GhostChip lets firmware teams test the chip before the chip arrives.
 
 ## Recording fallback
 
-Prepare the machine with the start command and run `python -m ghostchip.demo --check --smoke` before recording. Keep a prerecorded local capture available because the Windows Node/WSL toolchain split is the main operational demo risk. Do not substitute a canned result inside the product.
+Prepare the machine with the start command and run `python -m ghostchip.demo --check --smoke` before recording. It exercises the complete repair path. Keep a prerecorded local capture available because the Windows Node/WSL Python/GCC split is the main operational demo risk. Do not substitute a canned result inside the product.

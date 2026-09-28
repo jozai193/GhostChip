@@ -54,8 +54,12 @@ def prepare(*, build=True, run_flagship=False):
     if run_flagship:
         from fastapi.testclient import TestClient
         from .api import RunStore, create_app
+        from .proof import digest
+        from .repair import RepairStore, TARGET
         with tempfile.TemporaryDirectory(prefix="ghostchip-demo-smoke-") as temp:
-            client = TestClient(create_app(store=RunStore(root=Path(temp)), static_dir=WEB / "out"))
+            run_store = RunStore(root=Path(temp) / "runs")
+            repair_store = RepairStore(run_store, root=Path(temp) / "repairs")
+            client = TestClient(create_app(store=run_store, repair_store=repair_store, static_dir=WEB / "out"))
             landing = client.get("/")
             if landing.status_code != 200 or "GhostChip" not in landing.text:
                 raise RuntimeError("Static judge interface did not load through FastAPI")
@@ -73,9 +77,35 @@ def prepare(*, build=True, run_flagship=False):
                 raise RuntimeError("Flagship trace endpoint returned no callback records")
             if client.get(f"/api/runs/{run_id}/evidence").status_code != 200:
                 raise RuntimeError("Flagship evidence endpoint failed")
+            original_hash = digest(TARGET)
+            failed = client.post("/api/cases/buggy_driver/run")
+            if failed.status_code != 202:
+                raise RuntimeError("Buggy-driver API run did not start")
+            failed_id = failed.json()["id"]
+            failed_result = client.get(f"/api/runs/{failed_id}").json()
+            if failed_result["status"] != "FAIL":
+                raise RuntimeError("Buggy-driver smoke case did not produce the expected deterministic FAIL")
+            proposed = client.post(f"/api/runs/{failed_id}/repair")
+            if proposed.status_code != 202:
+                raise RuntimeError("Bounded repair proposal did not start")
+            repair_id = proposed.json()["id"]
+            proposal = client.get(f"/api/repairs/{repair_id}").json()
+            if proposal["status"] != "PROPOSED" or proposal["proposal"]["provider"]["kind"] != "local_demo":
+                raise RuntimeError("Offline demo provider did not produce a clearly labeled validated proposal")
+            applied = client.post(f"/api/repairs/{repair_id}/apply-and-verify")
+            if applied.status_code != 202:
+                raise RuntimeError("Repair apply-and-verify did not start")
+            repaired = client.get(f"/api/repairs/{repair_id}").json()
+            if repaired["status"] != "VERIFIED":
+                raise RuntimeError("Derived repair was not deterministically VERIFIED")
+            if not all(repaired["audit"]["identity_checks"].values()):
+                raise RuntimeError("Repair rerun did not preserve oracle identities")
+            if digest(TARGET) != original_hash or not repaired["audit"]["original_source_preserved"]:
+                raise RuntimeError("Repair workflow modified the original source")
     return {"python": sys.version.split()[0], "gcc": shutil.which("gcc"),
             "frontend": str(WEB / "out/index.html"), "bosch_source": "VERIFIED",
-            "flagship": "PASS" if run_flagship else "not run"}
+            "flagship": "PASS" if run_flagship else "not run",
+            "repair": "VERIFIED" if run_flagship else "not run"}
 
 
 def main():

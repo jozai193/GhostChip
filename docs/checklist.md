@@ -36,19 +36,19 @@
   Acceptance: two real rules and one compiled scenario with generic runtime.
   Verify: `tests/test_adxl345.py`, `docs/generalization.md`, and the ADXL345 proof artifact.
 
-- [ ] **7. Adapt an existing driver**
+- [x] **7. Adapt an existing driver**
   Spec ref: `Brief 13`
   What to build: documented callbacks, source/license record and completion contract.
   Acceptance: live reads affect driver branches; adapter preserves behavior.
   Verify: implementation-plan gate 4.
 
-- [ ] **8. Connect the full pipeline**
+- [x] **8. Connect the full pipeline**
   Spec ref: `Brief 19, 22`
   What to build: orchestration over validated immutable artifacts.
   Acceptance: PDF to result without hidden manual model edits.
   Verify: implementation-plan gate 5.
 
-- [ ] **9. Add UI and optional repair**
+- [x] **9. Add UI and bounded repair**
   Spec ref: `Brief 15, 17`
   What to build: real trace/evidence/diff views and same-scenario rerun.
   Acceptance: understandable flow; no unsupported verification badge.

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghostchip.local/schema/repair-proposal-v1.schema.json",
+  "title": "GhostChip repair proposal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "explanation", "unified_diff", "files_touched", "provider", "confidence"],
+  "properties": {
+    "version": {"const": "1.0.0"},
+    "explanation": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "unified_diff": {"type": "string", "minLength": 1, "maxLength": 8192},
+    "files_touched": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "model"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["local_demo", "live_ai", "test"]},
+        "model": {"type": "string", "minLength": 1}
+      }
+    },
+    "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+  }
+}
