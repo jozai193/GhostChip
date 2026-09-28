@@ -33,9 +33,15 @@ python3 -m ghostchip.demo --check --smoke
 
 It checks required files and Python packages, GCC, the static frontend, exact Bosch hashes, the landing/API path, a fresh `humidity_x4` build and execution, its trace, and evidence serialization.
 
-## Run on this Windows machine
+## Run tests on this Windows machine
 
-The existing Ubuntu WSL environment has Python 3.12.3, GCC and jsonschema 4.10.3. From PowerShell:
+The Ubuntu WSL environment has Python 3.12.3 and GCC. Synchronize the repository virtual environment before running the suite so it includes the Stage 5 API dependencies:
+
+```powershell
+wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m pip install -r requirements.txt
+```
+
+Then, from PowerShell:
 
 ```powershell
 wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m ghostchip.proof
