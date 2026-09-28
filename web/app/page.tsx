@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { assertionSummary, repairVisualState, TERMINAL_VERDICTS, visualVerdict } from "../lib/verdict.mjs";
+import { assertionSummary, PERSISTED_INTEGRITY_MESSAGE, repairVisualState, TERMINAL_VERDICTS, visualVerdict } from "../lib/verdict.mjs";
 import { acceptsRepair, acceptsRun, bindRepair, bindRun, canApplyRepair, nextGeneration, sameGeneration } from "../lib/active-context.mjs";
 
 type CaseMeta = {
@@ -59,6 +59,24 @@ type RepairRecord = {
 type ActiveContext = {
   generation: number; caseId: string; runId: string | null; repairId: string | null;
 };
+
+const PERSISTED_INTEGRITY_ERROR = "PERSISTED_RECORD_INTEGRITY_ERROR";
+
+async function decodeRepairResponse(response: Response, context: ActiveContext): Promise<RepairRecord> {
+  const payload = await response.json().catch(() => null);
+  if (response.ok) return payload as RepairRecord;
+  if (response.status === 409 && payload?.status === PERSISTED_INTEGRITY_ERROR &&
+      context.repairId && context.runId && payload?.repair_id === context.repairId) {
+    return {
+      id: context.repairId,
+      run_id: context.runId,
+      status: PERSISTED_INTEGRITY_ERROR,
+      events: [],
+      error: PERSISTED_INTEGRITY_MESSAGE,
+    };
+  }
+  throw new Error(payload?.message || "Repair status unavailable");
+}
 
 const stages = [
   ["verifying_reviewed_model", "Reviewed model"],
@@ -218,8 +236,7 @@ function App() {
     const controller = requestController();
     try {
       const response = await fetch(`/api/repairs/${context.repairId}`, { signal: controller.signal });
-      if (!response.ok) throw new Error("Repair status unavailable");
-      const next: RepairRecord = await response.json();
+      const next = await decodeRepairResponse(response, context);
       if (!acceptsRepair(activeRef.current, context)) return;
       if (next.id !== context.repairId || next.run_id !== context.runId) throw new Error("Repair response identity mismatch");
       setRepair(next);
@@ -265,12 +282,11 @@ function App() {
       const controller = requestController();
       const response = await fetch(`/api/repairs/${repair.id}/apply-and-verify`, { method: "POST", signal: controller.signal });
       releaseController(controller);
-      if (!response.ok) throw new Error(await response.text());
-      const applying: RepairRecord = await response.json();
+      const applying = await decodeRepairResponse(response, context);
       if (!acceptsRepair(activeRef.current, context)) return;
       if (applying.id !== context.repairId || applying.run_id !== context.runId) throw new Error("Apply response identity mismatch");
       setRepair(applying);
-      await pollRepair(context);
+      if (applying.status !== PERSISTED_INTEGRITY_ERROR) await pollRepair(context);
     } catch (error) {
       if (acceptsRepair(activeRef.current, context)) {
         applyPendingRef.current = false;
@@ -421,7 +437,7 @@ function App() {
                 <div className="repair-actions"><button className="button secondary" onClick={discardRepair} disabled={applyPending}>Discard</button><button className="button primary" onClick={applyRepair} disabled={applyPending}>{applyPending ? "Reserving…" : "Apply & verify"} <Icon name="arrow" /></button></div>
               </div>}
 
-              {repair && ["PATCH_REJECTED", "PROPOSAL_ERROR", "COMPILE_ERROR", "VERIFICATION_FAILED", "VERIFICATION_ERROR", "EXPIRED", "INTERRUPTED"].includes(repair.status) && <div className={`repair-outcome ${repairState.tone}`}><p className="label">{repairState.label}</p><h4>{repair.status === "VERIFICATION_FAILED" ? "The proposal compiled, but did not fix the behavior." : repair.status === "COMPILE_ERROR" ? "The derived driver did not compile." : ["EXPIRED", "INTERRUPTED"].includes(repair.status) ? "Generate a new repair after the server restart." : "GhostChip refused to verify this proposal."}</h4><p>{repair.error || (repair.status === "VERIFICATION_FAILED" ? "The unchanged Scenario still failed after deterministic re-execution." : "The proposal did not cross every safety and execution gate.")}</p></div>}
+              {repair && ["PATCH_REJECTED", "PROPOSAL_ERROR", "COMPILE_ERROR", "VERIFICATION_FAILED", "VERIFICATION_ERROR", "EXPIRED", "INTERRUPTED", PERSISTED_INTEGRITY_ERROR].includes(repair.status) && <div className={`repair-outcome ${repairState.tone}`}><p className="label">{repairState.label}</p><h4>{repair.status === PERSISTED_INTEGRITY_ERROR ? PERSISTED_INTEGRITY_MESSAGE : repair.status === "VERIFICATION_FAILED" ? "The proposal compiled, but did not fix the behavior." : repair.status === "COMPILE_ERROR" ? "The derived driver did not compile." : ["EXPIRED", "INTERRUPTED"].includes(repair.status) ? "Generate a new repair after the server restart." : "GhostChip refused to verify this proposal."}</h4><p>{repair.status === PERSISTED_INTEGRITY_ERROR ? "GhostChip refused to display the stored verdict because its evidence is incomplete or contradictory." : repair.error || (repair.status === "VERIFICATION_FAILED" ? "The unchanged Scenario still failed after deterministic re-execution." : "The proposal did not cross every safety and execution gate.")}</p></div>}
 
               {repair?.status === "VERIFIED" && repair.audit && <div className="repair-verified">
                 <div className="before-after"><div><span>BEFORE</span><strong>FAIL</strong><small>Effective humidity remained disabled</small></div><i>→</i><div><span>AFTER</span><strong>VERIFIED</strong><small>{repair.audit.rerun_result} on identical oracle inputs</small></div></div>

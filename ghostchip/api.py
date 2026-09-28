@@ -8,12 +8,12 @@ import time
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .presentation import (cases, device_detail, devices, run_demo_case,
                            serialize_trace, summarize_result)
-from .repair import RepairError, RepairStore
+from .repair import PersistedRecordIntegrityError, RepairError, RepairStore
 from .spec import ROOT
 
 
@@ -86,6 +86,13 @@ def create_app(*, store=None, repair_store=None, repair_provider=None, static_di
     run_store = store or RunStore()
     repairs = repair_store or RepairStore(run_store, provider=repair_provider)
     static = Path(static_dir or ROOT / "web/out")
+
+    def persisted_integrity_response(repair_id, exc):
+        return JSONResponse(status_code=409, content={
+            "status": exc.code,
+            "repair_id": repair_id,
+            "message": "Stored repair evidence is internally inconsistent.",
+        })
 
     @app.get("/api/health")
     def health():
@@ -173,6 +180,8 @@ def create_app(*, store=None, repair_store=None, repair_provider=None, static_di
             return repairs.get(repair_id)
         except KeyError:
             raise HTTPException(404, "Unknown repair") from None
+        except PersistedRecordIntegrityError as exc:
+            return persisted_integrity_response(repair_id, exc)
 
     @app.post("/api/repairs/{repair_id}/apply-and-verify", status_code=202)
     def apply_repair(repair_id: str, background: BackgroundTasks):
@@ -180,6 +189,8 @@ def create_app(*, store=None, repair_store=None, repair_provider=None, static_di
             record = repairs.reserve_apply(repair_id)
         except KeyError:
             raise HTTPException(404, "Unknown repair") from None
+        except PersistedRecordIntegrityError as exc:
+            return persisted_integrity_response(repair_id, exc)
         except RepairError as exc:
             raise HTTPException(409, str(exc)) from None
         background.add_task(repairs.apply_and_verify, repair_id)
@@ -191,6 +202,8 @@ def create_app(*, store=None, repair_store=None, repair_provider=None, static_di
             return repairs.discard(repair_id)
         except KeyError:
             raise HTTPException(404, "Unknown repair") from None
+        except PersistedRecordIntegrityError as exc:
+            return persisted_integrity_response(repair_id, exc)
         except RepairError as exc:
             raise HTTPException(409, str(exc)) from None
 

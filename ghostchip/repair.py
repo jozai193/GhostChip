@@ -44,6 +44,12 @@ class ProviderUnavailable(RepairError):
     """No configured proposal provider is available."""
 
 
+class PersistedRecordIntegrityError(RepairError):
+    """A stored repair record is incomplete or internally contradictory."""
+
+    code = "PERSISTED_RECORD_INTEGRITY_ERROR"
+
+
 def canonical_sha256(value):
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
@@ -339,6 +345,366 @@ def _public_record(record):
     return visible
 
 
+def _require(condition, message):
+    if not condition:
+        raise RepairError(message)
+
+
+def _proposal_payload(proposal):
+    keys = ("version", "explanation", "unified_diff", "files_touched", "provider", "confidence")
+    try:
+        return {key: deepcopy(proposal[key]) for key in keys}
+    except (KeyError, TypeError) as exc:
+        raise RepairError("Repair proposal is incomplete") from exc
+
+
+def _validate_record_lineage(record, *, require_proposal=True):
+    """Recompute the frozen request, proposal, patch, and derived-source lineage."""
+    request = record.get("request")
+    _require(isinstance(request, dict), "Repair record has no frozen request")
+    validate_repair_request(request)
+    identity = request.get("request") or {}
+    _require(record.get("id") == identity.get("repair_id"),
+             "Repair identity does not match the request")
+    _require(record.get("request_id") == identity.get("id"),
+             "Request identity does not match the record")
+    _require(record.get("run_id") == identity.get("run_id") == (request.get("run") or {}).get("id"),
+             "Run identity does not match the frozen request")
+    _require((request.get("run") or {}).get("result_sha256"),
+             "Frozen failed-result identity is missing")
+
+    request_text = record.get("request_bytes")
+    _require(isinstance(request_text, str), "Frozen request bytes are missing")
+    request_bytes = request_text.encode("utf-8")
+    _require(request_bytes == canonical_json_bytes(request) and
+             hashlib.sha256(request_bytes).hexdigest() == record.get("request_sha256"),
+             "Frozen request bytes or hash changed")
+
+    source = request.get("source") or {}
+    source_text = source.get("content")
+    _require(isinstance(source_text, str) and
+             hashlib.sha256(source_text.encode("utf-8")).hexdigest() == source.get("sha256"),
+             "Frozen original source bytes do not match their hash")
+
+    identities = request.get("identities") or {}
+    _require(isinstance(identities.get("reviewed_bundle"), dict),
+             "Frozen reviewed-bundle identity is missing")
+    _require(isinstance(identities.get("spec_sha256"), str) and identities["spec_sha256"],
+             "Frozen reviewed-model identity is missing")
+    _require(isinstance(identities.get("scenario_sha256"), str) and identities["scenario_sha256"],
+             "Frozen Scenario identity is missing")
+    closure = identities.get("execution_closure") or {}
+    closure_body = {key: closure.get(key) for key in ("version", "files", "compiler")}
+    _require(closure_sha256(closure_body) == closure.get("sha256"),
+             "Frozen execution-closure hash is inconsistent")
+    compiler = identities.get("compiler_configuration") or {}
+    closure_compiler = closure.get("compiler") or {}
+    _require(all(compiler.get(key) == closure_compiler.get(key)
+                 for key in ("path", "version", "target", "sha256")) and
+             isinstance(compiler.get("flags"), list),
+             "Frozen compiler configuration contradicts the execution closure")
+
+    if not require_proposal:
+        return
+
+    proposal = record.get("proposal")
+    provider_response = record.get("provider_response")
+    _require(isinstance(proposal, dict) and isinstance(provider_response, dict),
+             "Repair record has no frozen proposal")
+    legacy_normalized_hash = proposal.get("normalized_proposal_sha256")
+    _require(proposal.get("repair_id") == record.get("id") and
+             proposal.get("request_id") == record.get("request_id"),
+             "Proposal identity does not match its request")
+    _require(proposal.get("proposal_id") == record.get("proposal_id"),
+             "Proposal identity does not match the record")
+    _require(proposal.get("request_sha256") == record.get("request_sha256"),
+             "Proposal is bound to a different request hash")
+    raw_text = record.get("provider_response_raw")
+    _require(isinstance(raw_text, str), "Raw provider response is missing")
+    raw = raw_text.encode("utf-8")
+    _require(hashlib.sha256(raw).hexdigest() == proposal.get("response_sha256"),
+             "Raw provider response hash changed")
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RepairError("Raw provider response is no longer valid JSON") from exc
+    validate_provider_response(provider_response)
+    _require(decoded == provider_response and canonical_json_bytes(provider_response) == raw,
+             "Raw and normalized provider response differ")
+    _require(canonical_sha256(provider_response) == record.get("normalized_proposal_sha256"),
+             "Normalized proposal hash changed")
+    _require(legacy_normalized_hash is None or
+             legacy_normalized_hash == record.get("normalized_proposal_sha256"),
+             "Legacy proposal normalized-proposal hash changed")
+    _require(_proposal_payload(proposal) == provider_response,
+             "Displayed proposal differs from the provider response")
+    _require(proposal.get("provider") == record.get("trusted_provider"),
+             "Proposal provider differs from trusted configuration")
+    trusted = record.get("trusted_provider")
+    _require(isinstance(trusted, dict) and set(trusted) == {"id", "kind", "model"} and
+             trusted.get("kind") in {"local_demo", "live_ai", "test"} and
+             all(isinstance(trusted.get(key), str) and trusted[key]
+                 for key in ("id", "kind", "model")),
+             "Trusted provider identity is invalid")
+    patch = proposal.get("unified_diff", "")
+    _require(hashlib.sha256(patch.encode("utf-8")).hexdigest() == proposal.get("patch_sha256"),
+             "Patch bytes or hash changed")
+    derived, touched, changed = validate_and_apply_patch(
+        source_text, patch, request["constraints"]
+    )
+    _require(proposal.get("files_touched") == [touched] and
+             proposal.get("changed_lines") == changed,
+             "Proposal file or changed-line metadata changed")
+    derived_hash = hashlib.sha256(derived.encode("utf-8")).hexdigest()
+    _require(derived == record.get("derived_source") and
+             derived_hash == proposal.get("resulting_source_sha256"),
+             "Derived source bytes or hash changed")
+
+
+def _validate_snapshot_manifest(record):
+    manifest = record.get("snapshot_manifest")
+    _require(isinstance(manifest, dict), "Execution snapshot manifest is missing")
+    files = manifest.get("files")
+    required = {"gc_hal.c", "gc_hal.h", "original.c", "candidate.c", "scenario.json",
+                "reviewed-bundle.json", "execution-closure.json"}
+    _require(isinstance(files, dict) and set(files) == required,
+             "Execution snapshot manifest is incomplete")
+    body = {"version": manifest.get("version"), "files": files}
+    _require(manifest.get("version") == "repair-execution-snapshot-v1" and
+             canonical_sha256(body) == manifest.get("sha256"),
+             "Execution snapshot manifest hash changed")
+    request = record["request"]
+    closure = request["identities"]["execution_closure"]
+    _require(files["original.c"] == request["source"]["sha256"] and
+             files["candidate.c"] == record["proposal"]["resulting_source_sha256"] and
+             files["gc_hal.c"] == closure["files"].get("examples/gc_hal.c") and
+             files["gc_hal.h"] == closure["files"].get("examples/gc_hal.h") and
+             files["execution-closure.json"] == hashlib.sha256(
+                 canonical_json_bytes(closure)).hexdigest(),
+             "Execution snapshot identities contradict the frozen inputs")
+
+
+def _validate_snapshot_files(record, snapshot):
+    """Rehash the persisted execution snapshot and bind its stored inputs."""
+    snapshot = Path(snapshot)
+    manifest = record["snapshot_manifest"]
+    payloads = {}
+    for name, expected in manifest["files"].items():
+        path = snapshot / name
+        _require(path.is_file(), f"Execution snapshot file is missing: {name}")
+        payload = path.read_bytes()
+        _require(hashlib.sha256(payload).hexdigest() == expected,
+                 f"Execution snapshot changed: {name}")
+        payloads[name] = payload
+
+    request = record["request"]
+    identities = request["identities"]
+    _require(payloads["original.c"] == request["source"]["content"].encode("utf-8") and
+             payloads["candidate.c"] == record["derived_source"].encode("utf-8"),
+             "Execution snapshot source bytes changed")
+    try:
+        scenario = json.loads(payloads["scenario.json"])
+        bundle = json.loads(payloads["reviewed-bundle.json"])
+        closure = json.loads(payloads["execution-closure.json"])
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RepairError("Execution snapshot JSON is malformed") from exc
+    _require(_model_sha256(scenario) == identities["scenario_sha256"],
+             "Execution snapshot Scenario identity changed")
+    _require(bundle.get("identities") == identities["reviewed_bundle"] and
+             _model_sha256(bundle.get("reviewed_spec")) == identities["spec_sha256"],
+             "Execution snapshot reviewed-model identity changed")
+    _require(closure == identities["execution_closure"],
+             "Execution snapshot closure identity changed")
+
+
+def _assertion_passes(assertion):
+    """Evaluate the comparator semantics implemented by the deterministic runner."""
+    comparators = [name for name in ("equals",) if name in assertion]
+    _require(comparators == ["equals"], "Assertion has unsupported comparator semantics")
+    _require("actual" in assertion, "Assertion has no observed value")
+    return assertion["actual"] == assertion["equals"]
+
+
+def _validate_verification_evidence(record, expected_result):
+    verification = record.get("verification")
+    audit = record.get("audit")
+    _require(isinstance(verification, dict), "Verification payload is missing")
+    _require(isinstance(audit, dict), "Repair audit payload is missing")
+    _require(verification.get("status") == expected_result,
+             "Verification result contradicts the repair status")
+    _require(audit.get("rerun_result") == expected_result and
+             audit.get("final_repair_status") == record.get("status"),
+             "Audit result contradicts the repair status")
+
+    request = record["request"]
+    identities = request["identities"]
+    proposal = record["proposal"]
+    expected_audit = {
+        "repair_id": record["id"], "request_id": record["request_id"],
+        "proposal_id": record["proposal_id"], "original_run_id": record["run_id"],
+        "failed_result_sha256": request["run"]["result_sha256"],
+        "failed_assertion_ids": request["failure"]["assertion_ids"],
+        "original_source_sha256": request["source"]["sha256"],
+        "repair_request_sha256": record["request_sha256"],
+        "provider": record["trusted_provider"],
+        "provider_response_sha256": proposal["response_sha256"],
+        "normalized_proposal_sha256": record["normalized_proposal_sha256"],
+        "patch_sha256": proposal["patch_sha256"],
+        "resulting_source_sha256": proposal["resulting_source_sha256"],
+        "execution_closure_sha256": identities["execution_closure"]["sha256"],
+        "snapshot_manifest_sha256": record["snapshot_manifest"]["sha256"],
+        "reviewed_model_identity": identities["reviewed_bundle"],
+        "scenario_sha256": identities["scenario_sha256"],
+        "instance_sha256": identities.get("instance_sha256"),
+        "fault_plan_sha256": identities.get("fault_plan_sha256"),
+        "compiler_configuration": identities["compiler_configuration"],
+    }
+    _require(all(audit.get(key) == value for key, value in expected_audit.items()),
+             "Persisted audit does not match frozen repair identities")
+    _require(audit.get("original_source_preserved") is True,
+             "Audit does not preserve the original source identity")
+
+    build = verification.get("build") or {}
+    executable = build.get("executable_sha256")
+    _require(verification.get("driver_sha256") == proposal["resulting_source_sha256"],
+             "Verification source identity changed")
+    _require(verification.get("review_bundle") == identities["reviewed_bundle"] and
+             verification.get("spec_sha256") == identities["spec_sha256"] and
+             verification.get("scenario_sha256") == identities["scenario_sha256"],
+             "Verification model or Scenario identity changed")
+    _require(verification.get("execution_closure") == identities["execution_closure"] and
+             build.get("compiler_configuration") == identities["compiler_configuration"],
+             "Verification execution closure or compiler identity changed")
+    closure_files = identities["execution_closure"]["files"]
+    _require(verification.get("hal_sha256") == closure_files.get("examples/gc_hal.c") and
+             verification.get("hal_header_sha256") == closure_files.get("examples/gc_hal.h"),
+             "Verification HAL snapshot identity changed")
+    _require(verification.get("instance_sha256") == identities.get("instance_sha256") and
+             verification.get("fault_plan_sha256") == identities.get("fault_plan_sha256"),
+             "Verification instance or FaultPlan identity changed")
+
+    required_checks = {"reviewed_bundle", "spec_sha256", "scenario_sha256",
+                       "instance_sha256", "fault_plan_sha256", "compiler_configuration",
+                       "execution_closure", "staged_hal"}
+    checks = audit.get("identity_checks")
+    _require(isinstance(checks, dict) and required_checks.issubset(checks) and
+             all(checks.get(name) is True for name in required_checks),
+             "Audit identity checks are incomplete or failed")
+
+    recomputed = []
+    if expected_result in {"PASS", "FAIL"}:
+        expected_assertions = request["failure"].get("scenario_intent") or []
+        actual_assertions = verification.get("assertions")
+        _require(isinstance(actual_assertions, list) and
+                 len(actual_assertions) == len(expected_assertions),
+                 "Verification assertions are incomplete")
+        actual_by_id = {item.get("id"): item for item in actual_assertions
+                        if isinstance(item, dict)}
+        _require(len(actual_by_id) == len(actual_assertions),
+                 "Verification assertions have missing or duplicate identities")
+        _require(set(actual_by_id) == {item.get("id") for item in expected_assertions},
+                 "Verification assertions do not match the frozen Scenario")
+        for expected in expected_assertions:
+            assertion = actual_by_id[expected["id"]]
+            _require(all(assertion.get(key) == value for key, value in expected.items()),
+                     "Verification assertion changed from the frozen Scenario")
+            passed = _assertion_passes(assertion)
+            _require(isinstance(assertion.get("passed"), bool) and
+                     assertion["passed"] == passed,
+                     "Verification assertion pass flag contradicts its comparator")
+            recomputed.append(passed)
+
+    violations = verification.get("violations")
+    _require(isinstance(violations, list), "Verification violations are missing")
+    if expected_result == "PASS":
+        _require(all(recomputed) and not violations,
+                 "VERIFIED repair contains a failed effective assertion")
+        _require(audit.get("compile_result") == "PASS" and
+                 isinstance(executable, str) and executable and
+                 audit.get("executable_sha256") == executable,
+                 "VERIFIED repair has no matching successful executable")
+    elif expected_result == "FAIL":
+        _require(not all(recomputed) and violations,
+                 "VERIFICATION_FAILED record contains no effective failure")
+        failed_ids = {item["id"] for item, passed in zip(expected_assertions, recomputed)
+                      if not passed}
+        violation_ids = {item.get("assertion_id") for item in violations
+                         if isinstance(item, dict)}
+        _require(failed_ids == violation_ids,
+                 "Verification violations contradict the failed assertions")
+        _require(audit.get("compile_result") == "PASS" and
+                 isinstance(executable, str) and executable and
+                 audit.get("executable_sha256") == executable,
+                 "Failed verification has no matching compiled executable")
+    else:
+        _require(audit.get("compile_result") == "ERROR",
+                 "Error verification has a successful compile result")
+        if record.get("status") == "COMPILE_ERROR":
+            _require(not executable and not audit.get("executable_sha256"),
+                     "COMPILE_ERROR contains a successful executable result")
+        else:
+            _require(audit.get("executable_sha256") == executable,
+                     "Verification error executable identity is inconsistent")
+
+
+def validate_persisted_repair(record, *, snapshot=None):
+    """Return a consistent stored repair record or raise an explicit integrity error."""
+    try:
+        _require(isinstance(record, dict), "Stored repair record is not an object")
+        status = record.get("status")
+        allowed = {"GENERATING", "PROPOSED", "APPLYING", "VERIFIED",
+                   "VERIFICATION_FAILED", "VERIFICATION_ERROR", "COMPILE_ERROR",
+                   "PATCH_REJECTED", "PROPOSAL_ERROR", "DISCARDED", "EXPIRED",
+                   "INTERRUPTED"}
+        _require(status in allowed, "Stored repair record has an unknown state")
+        _validate_record_lineage(record, require_proposal=False)
+
+        proposal_required = {"PROPOSED", "APPLYING", "VERIFIED", "VERIFICATION_FAILED",
+                             "COMPILE_ERROR", "INTERRUPTED"}
+        if status in proposal_required or (status in {"DISCARDED", "EXPIRED",
+                                                      "VERIFICATION_ERROR"} and
+                                           record.get("proposal") is not None):
+            _validate_record_lineage(record)
+
+        if status in {"APPLYING", "INTERRUPTED", "VERIFIED", "VERIFICATION_FAILED",
+                      "COMPILE_ERROR"}:
+            _validate_snapshot_manifest(record)
+            if snapshot is not None:
+                _validate_snapshot_files(record, snapshot)
+
+        if status == "VERIFIED":
+            _validate_verification_evidence(record, "PASS")
+        elif status == "VERIFICATION_FAILED":
+            _validate_verification_evidence(record, "FAIL")
+        elif status == "COMPILE_ERROR":
+            _validate_verification_evidence(record, "ERROR")
+        elif status == "VERIFICATION_ERROR":
+            verification, audit = record.get("verification"), record.get("audit")
+            _require((verification is None) == (audit is None),
+                     "Verification error has partial terminal evidence")
+            if verification is not None:
+                _validate_record_lineage(record)
+                _validate_snapshot_manifest(record)
+                if snapshot is not None:
+                    _validate_snapshot_files(record, snapshot)
+                _validate_verification_evidence(record, "ERROR")
+            else:
+                _require(record.get("error_code") and record.get("error"),
+                         "Verification error has no explicit failure")
+        else:
+            _require(record.get("verification") is None and record.get("audit") is None,
+                     f"{status} record contains verification evidence")
+            if status not in {"APPLYING", "INTERRUPTED"}:
+                _require(record.get("snapshot_manifest") is None and
+                         record.get("derived_path") is None,
+                         f"{status} record contains applied execution evidence")
+        return record
+    except PersistedRecordIntegrityError:
+        raise
+    except Exception as exc:
+        raise PersistedRecordIntegrityError(str(exc)) from exc
+
+
 class RepairStore:
     TERMINAL = {"VERIFIED", "VERIFICATION_FAILED", "COMPILE_ERROR", "VERIFICATION_ERROR",
                 "PROPOSAL_ERROR", "PATCH_REJECTED", "DISCARDED", "EXPIRED", "INTERRUPTED"}
@@ -364,11 +730,6 @@ class RepairStore:
                                      "at_ms": round((time.time() - record["created_at"]) * 1000, 3)})
 
     @staticmethod
-    def _proposal_payload(proposal):
-        keys = ("version", "explanation", "unified_diff", "files_touched", "provider", "confidence")
-        return {key: deepcopy(proposal[key]) for key in keys}
-
-    @staticmethod
     def _lineage_fingerprint(record):
         keys = ("id", "run_id", "request_id", "proposal_id", "request",
                 "request_bytes", "request_sha256", "trusted_provider",
@@ -377,66 +738,7 @@ class RepairStore:
         return canonical_sha256({key: record.get(key) for key in keys})
 
     def _validate_internal_lineage(self, record, *, require_proposal=True):
-        request = record.get("request")
-        if not isinstance(request, dict):
-            raise RepairError("Repair record has no frozen request")
-        identity = request.get("request") or {}
-        if record.get("id") != identity.get("repair_id"):
-            raise RepairError("Repair identity does not match the request")
-        if record.get("request_id") != identity.get("id"):
-            raise RepairError("Request identity does not match the record")
-        if record.get("run_id") != identity.get("run_id") or record.get("run_id") != (request.get("run") or {}).get("id"):
-            raise RepairError("Run identity does not match the frozen request")
-        request_bytes = record.get("request_bytes", "").encode("utf-8")
-        if (request_bytes != canonical_json_bytes(request) or
-                hashlib.sha256(request_bytes).hexdigest() != record.get("request_sha256")):
-            raise RepairError("Frozen request bytes or hash changed")
-        source = request.get("source") or {}
-        if hashlib.sha256(source.get("content", "").encode("utf-8")).hexdigest() != source.get("sha256"):
-            raise RepairError("Frozen original source bytes do not match their hash")
-        closure = (request.get("identities") or {}).get("execution_closure") or {}
-        closure_body = {key: closure.get(key) for key in ("version", "files", "compiler")}
-        if closure_sha256(closure_body) != closure.get("sha256"):
-            raise RepairError("Frozen execution-closure hash is inconsistent")
-        if not require_proposal:
-            return
-        proposal = record.get("proposal")
-        provider_response = record.get("provider_response")
-        if not isinstance(proposal, dict) or not isinstance(provider_response, dict):
-            raise RepairError("Repair record has no frozen proposal")
-        if proposal.get("repair_id") != record.get("id") or proposal.get("request_id") != record.get("request_id"):
-            raise RepairError("Proposal identity does not match its request")
-        if proposal.get("proposal_id") != record.get("proposal_id"):
-            raise RepairError("Proposal identity does not match the record")
-        if proposal.get("request_sha256") != record.get("request_sha256"):
-            raise RepairError("Proposal is bound to a different request hash")
-        raw = record.get("provider_response_raw", "").encode("utf-8")
-        if hashlib.sha256(raw).hexdigest() != proposal.get("response_sha256"):
-            raise RepairError("Raw provider response hash changed")
-        try:
-            decoded = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RepairError("Raw provider response is no longer valid JSON") from exc
-        if decoded != provider_response or canonical_json_bytes(provider_response) != raw:
-            raise RepairError("Raw and normalized provider response differ")
-        if canonical_sha256(provider_response) != record.get("normalized_proposal_sha256"):
-            raise RepairError("Normalized proposal hash changed")
-        if self._proposal_payload(proposal) != provider_response:
-            raise RepairError("Displayed proposal differs from the provider response")
-        if proposal.get("provider") != record.get("trusted_provider"):
-            raise RepairError("Proposal provider differs from trusted configuration")
-        patch = proposal.get("unified_diff", "")
-        if hashlib.sha256(patch.encode("utf-8")).hexdigest() != proposal.get("patch_sha256"):
-            raise RepairError("Patch bytes or hash changed")
-        derived, touched, changed = validate_and_apply_patch(
-            source["content"], patch, request["constraints"]
-        )
-        if proposal.get("files_touched") != [touched] or proposal.get("changed_lines") != changed:
-            raise RepairError("Proposal file or changed-line metadata changed")
-        derived_hash = hashlib.sha256(derived.encode("utf-8")).hexdigest()
-        if (derived != record.get("derived_source") or
-                derived_hash != proposal.get("resulting_source_sha256")):
-            raise RepairError("Derived source bytes or hash changed")
+        _validate_record_lineage(record, require_proposal=require_proposal)
 
     def _validate_active_lineage(self, record):
         self._validate_internal_lineage(record)
@@ -559,7 +861,6 @@ class RepairStore:
                 "proposal_id": proposal_id,
                 "request_sha256": request_sha,
                 "response_sha256": hashlib.sha256(raw_bytes).hexdigest(),
-                "normalized_proposal_sha256": canonical_sha256(normalized),
                 "patch_sha256": hashlib.sha256(normalized["unified_diff"].encode("utf-8")).hexdigest(),
                 "resulting_source_sha256": hashlib.sha256(derived.encode("utf-8")).hexdigest(),
                 "changed_lines": changed,
@@ -757,6 +1058,8 @@ class RepairStore:
         record = json.loads(path.read_text())
         if record.get("id") != repair_id:
             raise KeyError(repair_id)
+        snapshot = self.root / repair_id / "execution-snapshot"
+        validate_persisted_repair(record, snapshot=snapshot)
         status = record.get("status")
         if status in {"GENERATING", "PROPOSED"}:
             record.update(status="EXPIRED", error_code="RESTART_REQUIRED",
@@ -768,30 +1071,7 @@ class RepairStore:
                           error="Verification was interrupted by process restart",
                           completed_at=time.time())
             self._save(record)
-        elif record.get("proposal") is not None:
-            try:
-                self._validate_internal_lineage(record)
-                audit = record.get("audit")
-                if audit:
-                    expected = {
-                        "repair_id": record["id"], "request_id": record["request_id"],
-                        "proposal_id": record["proposal_id"], "original_run_id": record["run_id"],
-                        "failed_result_sha256": record["request"]["run"]["result_sha256"],
-                        "repair_request_sha256": record["request_sha256"],
-                        "provider": record["trusted_provider"],
-                        "provider_response_sha256": record["proposal"]["response_sha256"],
-                        "normalized_proposal_sha256": record["normalized_proposal_sha256"],
-                        "patch_sha256": record["proposal"]["patch_sha256"],
-                        "resulting_source_sha256": record["proposal"]["resulting_source_sha256"],
-                        "execution_closure_sha256": record["request"]["identities"]["execution_closure"]["sha256"],
-                    }
-                    if any(audit.get(key) != value for key, value in expected.items()):
-                        raise RepairError("Persisted audit does not match frozen lineage")
-            except Exception as exc:
-                record.update(status="VERIFICATION_ERROR",
-                              error_code="PERSISTED_RECORD_INTEGRITY_ERROR",
-                              error=str(exc), completed_at=time.time())
-                self._save(record)
+        validate_persisted_repair(record, snapshot=snapshot)
         with self._lock:
             self._repairs[repair_id] = record
         return record

@@ -13,8 +13,9 @@ from fastapi.testclient import TestClient
 from ghostchip.api import RunStore, create_app
 from ghostchip.presentation import run_demo_case
 from ghostchip.proof import digest
-from ghostchip.repair import (LocalDemoRepairProvider, RepairError, RepairStore,
-                              TARGET, build_repair_request)
+from ghostchip.repair import (LocalDemoRepairProvider, PersistedRecordIntegrityError,
+                              RepairError, RepairStore, TARGET, build_repair_request,
+                              canonical_sha256)
 from ghostchip.spec import ROOT
 
 
@@ -77,6 +78,20 @@ class Stage7RemediationTests(unittest.TestCase):
         store.generate(created["id"])
         self.assertEqual(store.get(created["id"])["status"], "PROPOSED")
         return store, root, created["id"]
+
+    def persisted_terminal(self, provider=None):
+        store, root, repair_id = self.proposed(provider)
+        store.apply_and_verify(repair_id)
+        path = root / f"{repair_id}.json"
+        return store, root, repair_id, path, json.loads(path.read_text())
+
+    def assert_persisted_integrity_error(self, store, root, repair_id, path, record):
+        path.write_text(json.dumps(record, indent=2) + "\n")
+        restarted = RepairStore(store.run_store, provider=LocalDemoRepairProvider(), root=root)
+        with self.assertRaises(PersistedRecordIntegrityError):
+            restarted.get(repair_id)
+        self.assertEqual(json.loads(path.read_text()), record,
+                         "Integrity failure must not rewrite or normalize the forged record")
 
     def assert_refused(self, store, repair_id):
         with self.assertRaises(RepairError):
@@ -321,17 +336,124 @@ class Stage7RemediationTests(unittest.TestCase):
                 store.reserve_apply(repair_id)
         runner.assert_not_called()
 
-    def test_persisted_audit_tampering_is_not_loaded_as_verified(self):
-        store, root, repair_id = self.proposed()
-        store.apply_and_verify(repair_id)
-        path = root / f"{repair_id}.json"
-        record = json.loads(path.read_text())
+    def test_persisted_audit_tampering_raises_without_rewriting_record(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
         record["audit"]["provider"]["kind"] = "live_ai"
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_contradictory_persisted_verified_status_is_rejected(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        record["audit"]["final_repair_status"] = "VERIFICATION_FAILED"
+        record["audit"]["rerun_result"] = "FAIL"
+        record["verification"]["status"] = "FAIL"
+        assertion = next(item for item in record["verification"]["assertions"]
+                         if item["id"] == "effective_request")
+        assertion.update(actual=0, passed=False)
+        record["verification"]["violations"] = [{"assertion_id": "effective_request"}]
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_persisted_verified_requires_verification_payload(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        record.pop("verification")
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_persisted_verified_requires_audit_payload(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        record.pop("audit")
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_persisted_verified_recomputes_assertion_comparator(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        assertion = next(item for item in record["verification"]["assertions"]
+                         if item["id"] == "effective_request")
+        assertion.update(actual=0, passed=True)
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_persisted_verified_rejects_altered_executable_identity(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        record["audit"]["executable_sha256"] = "0" * 64
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_persisted_verified_rejects_altered_model_scenario_and_compiler(self):
+        store, root, repair_id, path, original = self.persisted_terminal()
+        mutations = {
+            "Scenario": lambda record: record["verification"].update(scenario_sha256="0" * 64),
+            "reviewed bundle": lambda record: record["verification"].update(review_bundle={}),
+            "compiler": lambda record: record["verification"]["build"]["compiler_configuration"].update(
+                flags=["-O3"]),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(identity=label):
+                record = deepcopy(original)
+                mutate(record)
+                self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_persisted_verified_rejects_altered_closure_and_snapshot(self):
+        store, root, repair_id, path, original = self.persisted_terminal()
+
+        changed_closure = deepcopy(original)
+        changed_closure["verification"]["execution_closure"]["sha256"] = "0" * 64
+        self.assert_persisted_integrity_error(store, root, repair_id, path, changed_closure)
+
+        changed_snapshot = deepcopy(original)
+        manifest = changed_snapshot["snapshot_manifest"]
+        manifest["files"]["candidate.c"] = "0" * 64
+        manifest["sha256"] = canonical_sha256({
+            "version": manifest["version"], "files": manifest["files"],
+        })
+        changed_snapshot["audit"]["snapshot_manifest_sha256"] = manifest["sha256"]
+        self.assert_persisted_integrity_error(store, root, repair_id, path, changed_snapshot)
+
+        store2, root2, repair_id2, _, _ = self.persisted_terminal()
+        scenario_path = root2 / repair_id2 / "execution-snapshot" / "scenario.json"
+        scenario_path.write_text("{}")
+        restarted = RepairStore(store2.run_store, provider=LocalDemoRepairProvider(), root=root2)
+        with self.assertRaises(PersistedRecordIntegrityError):
+            restarted.get(repair_id2)
+
+    def test_persisted_verified_rejects_altered_source_lineage(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        record["derived_source"] += "/* forged stored bytes */\n"
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_redundant_proposal_normalized_hash_is_removed_and_legacy_mismatch_rejected(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        self.assertNotIn("normalized_proposal_sha256", record["proposal"])
+        legacy = deepcopy(record)
+        legacy["proposal"]["normalized_proposal_sha256"] = legacy["normalized_proposal_sha256"]
+        path.write_text(json.dumps(legacy, indent=2) + "\n")
+        restarted = RepairStore(store.run_store, provider=LocalDemoRepairProvider(), root=root)
+        self.assertEqual(restarted.get(repair_id)["status"], "VERIFIED")
+        record["proposal"]["normalized_proposal_sha256"] = "0" * 64
+        self.assert_persisted_integrity_error(store, root, repair_id, path, record)
+
+    def test_valid_persisted_verified_record_loads(self):
+        store, root, repair_id, _, _ = self.persisted_terminal()
+        restarted = RepairStore(store.run_store, provider=LocalDemoRepairProvider(), root=root)
+        self.assertEqual(restarted.get(repair_id)["status"], "VERIFIED")
+
+    def test_valid_persisted_verification_failed_record_loads(self):
+        store, root, repair_id, _, record = self.persisted_terminal(IrrelevantRepairProvider())
+        self.assertEqual(record["status"], "VERIFICATION_FAILED")
+        restarted = RepairStore(store.run_store, provider=IrrelevantRepairProvider(), root=root)
+        self.assertEqual(restarted.get(repair_id)["status"], "VERIFICATION_FAILED")
+
+    def test_restart_http_forged_terminal_returns_explicit_integrity_error(self):
+        store, root, repair_id, path, record = self.persisted_terminal()
+        record["audit"]["final_repair_status"] = "VERIFICATION_FAILED"
+        record["verification"]["status"] = "FAIL"
         path.write_text(json.dumps(record, indent=2) + "\n")
         restarted = RepairStore(store.run_store, provider=LocalDemoRepairProvider(), root=root)
-        loaded = restarted.get(repair_id)
-        self.assertEqual(loaded["status"], "VERIFICATION_ERROR")
-        self.assertEqual(loaded["error_code"], "PERSISTED_RECORD_INTEGRITY_ERROR")
+        client = TestClient(create_app(store=store.run_store, repair_store=restarted,
+                                       static_dir=root / "missing"))
+        response = client.get(f"/api/repairs/{repair_id}")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), {
+            "status": "PERSISTED_RECORD_INTEGRITY_ERROR",
+            "repair_id": repair_id,
+            "message": "Stored repair evidence is internally inconsistent.",
+        })
+        self.assertNotEqual(response.json()["status"], "VERIFIED")
 
 
 if __name__ == "__main__":

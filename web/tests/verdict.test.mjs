@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assertionSummary, repairVisualState, visualVerdict } from "../lib/verdict.mjs";
+import { assertionSummary, PERSISTED_INTEGRITY_MESSAGE, repairVisualState, visualVerdict } from "../lib/verdict.mjs";
 
 test("ERROR cannot be rendered as a pass", () => {
   assert.deepEqual(visualVerdict("ERROR"), { label: "ERROR", tone: "error" });
@@ -14,9 +14,18 @@ test("assertion counts are copied from the actual result", () => {
 
 test("repair states keep proposal, compile, verification failure, and verified distinct", () => {
   assert.deepEqual(repairVisualState("VERIFIED"), { label: "VERIFIED REPAIR", tone: "pass" });
+  assert.deepEqual(repairVisualState("PERSISTED_RECORD_INTEGRITY_ERROR"),
+                   { label: "ERROR", tone: "error" });
   assert.deepEqual(repairVisualState("VERIFICATION_FAILED"), { label: "VERIFICATION FAILED", tone: "fail" });
   assert.deepEqual(repairVisualState("COMPILE_ERROR"), { label: "COMPILE ERROR", tone: "error" });
   assert.deepEqual(repairVisualState("EXPIRED"), { label: "RESTART REQUIRED", tone: "error" });
   assert.deepEqual(repairVisualState("INTERRUPTED"), { label: "VERIFICATION INTERRUPTED", tone: "error" });
   assert.notEqual(repairVisualState("VERIFICATION_FAILED").tone, repairVisualState("VERIFIED").tone);
+  assert.notEqual(repairVisualState("PERSISTED_RECORD_INTEGRITY_ERROR").tone,
+                  repairVisualState("VERIFIED").tone);
+});
+
+test("persisted integrity failures use the required user-facing message", () => {
+  assert.equal(PERSISTED_INTEGRITY_MESSAGE,
+               "Stored verification record failed integrity checks.");
 });

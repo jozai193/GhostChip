@@ -1,4 +1,5 @@
 export const TERMINAL_VERDICTS = new Set(["PASS", "FAIL", "ERROR"]);
+export const PERSISTED_INTEGRITY_MESSAGE = "Stored verification record failed integrity checks.";
 
 export function visualVerdict(status) {
   if (status === "PASS") return { label: "VERIFIED", tone: "pass" };
@@ -15,6 +16,7 @@ export function assertionSummary(result) {
 
 export function repairVisualState(status) {
   if (status === "VERIFIED") return { label: "VERIFIED REPAIR", tone: "pass" };
+  if (status === "PERSISTED_RECORD_INTEGRITY_ERROR") return { label: "ERROR", tone: "error" };
   if (status === "VERIFICATION_FAILED") return { label: "VERIFICATION FAILED", tone: "fail" };
   if (status === "COMPILE_ERROR") return { label: "COMPILE ERROR", tone: "error" };
   if (status === "PATCH_REJECTED") return { label: "PATCH REJECTED", tone: "error" };
