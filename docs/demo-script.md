@@ -1,6 +1,6 @@
 # GhostChip final demo narration
 
-Selected voice: Deepgram `aura-2-orpheus-en` (professional, clear, confident, trustworthy). Pronunciation text is written for speech; the UI retains exact identifiers.
+Selected voice: Deepgram `aura-2-orion-en`, matching the Runline demo voice. The final master uses pitch-preserving 1.05x editorial pacing for submission-limit headroom. Pronunciation text is written for speech; the UI retains exact identifiers.
 
 ## Narration segments
 

@@ -16,6 +16,10 @@ SCRIPT_COPY = SUBMISSION / "GhostChip_Demo_Script.md"
 PAUSE_SECONDS = 0.35
 INTRO_SECONDS = 0.8
 OUTRO_SECONDS = 0.8
+# Keep the Runline Aura-2 Orion voice while tightening its delivery enough to
+# leave safe headroom below the three-minute submission limit. FFmpeg's atempo
+# filter changes timing without shifting pitch.
+EDITORIAL_TEMPO = 1.05
 
 
 def executable(name: str) -> str:
@@ -79,7 +83,7 @@ def main() -> None:
         inputs.extend(["-i", str(path)])
         filter_parts.append(
             f"[{index}:a]aresample=48000,aformat=sample_fmts=fltp:"
-            f"channel_layouts=stereo[a{index}]"
+            f"channel_layouts=stereo,atempo={EDITORIAL_TEMPO}[a{index}]"
         )
         labels.append(f"[a{index}]")
         if index < len(paths) - 1:
@@ -108,7 +112,7 @@ def main() -> None:
     cursor = INTRO_SECONDS
     cue_number = 1
     for (number, text), path in zip(matches, paths, strict=True):
-        segment_duration = duration(path)
+        segment_duration = duration(path) / EDITORIAL_TEMPO
         sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", " ".join(text.split())) if item.strip()]
         weights = [max(1, len(item)) for item in sentences]
         weight_total = sum(weights)

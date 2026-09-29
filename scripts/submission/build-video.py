@@ -14,6 +14,7 @@ OUTPUT = SUBMISSION / "GhostChip_Demo_Final.mp4"
 PAUSE = 0.35
 INTRO = 0.8
 OUTRO = 0.8
+EDITORIAL_TEMPO = 1.05
 
 # Offsets remove recorder setup/teardown while retaining every real interaction.
 START_OFFSETS = [2.8, 2.5, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
@@ -57,7 +58,7 @@ def main() -> None:
     if missing:
         raise FileNotFoundError("Missing media: " + ", ".join(missing))
 
-    segment_durations = [duration(path) + PAUSE for path in speech]
+    segment_durations = [duration(path) / EDITORIAL_TEMPO + PAUSE for path in speech]
     segment_durations[0] += INTRO
     segment_durations[-1] += OUTRO - PAUSE
 
