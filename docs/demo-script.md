@@ -1,53 +1,57 @@
-# GhostChip 2:30 demo script
+# GhostChip final demo narration
 
-## 0:00–0:15 — the problem
+Selected voice: Deepgram `aura-2-orpheus-en` (professional, clear, confident, trustworthy). Pronunciation text is written for speech; the UI retains exact identifiers.
 
-Open the landing screen.
+## Narration segments
 
-> Drivers can compile while still violating behavioral rules hidden in datasheets. GhostChip tests those rules before the hardware arrives.
+### 1 — Hook
 
-## 0:15–0:35 — evidence and identity
+An embedded driver can compile, write a setting, and read it back correctly—while the chip never activates it. That failure may stay hidden until hardware arrives.
 
-Show the BME280 model card: the reviewed humidity-latch rule, datasheet pages 27–28, bounded coverage, and model hash. Briefly show Bosch's pristine source identity.
+### 2 — What GhostChip does
 
-> This is a reviewed behavioral rule and a pinned source identity—not a claim that the whole chip has been modeled.
+GhostChip moves that test earlier. It turns reviewed datasheet behavior into an executable virtual peripheral, runs compiled driver callbacks through it, and evaluates explicit scenarios against cited rules. The model is bounded and reviewed; it is not a silicon digital twin.
 
-## 0:35–0:55 — run the buggy driver
+### 3 — Run the controlled fixture
 
-Choose **Original buggy driver** and run it. Name the four real register operations as they appear.
+Here is the controlled B-M-E two-eighty repair demo. GhostChip reconstructs the reviewed bundle, creates the virtual chip, compiles trusted source, records callbacks, and checks the result. These stages come from the real backend.
 
-## 0:55–1:15 — deterministic FAIL
+### 4 — Failure
 
-> The driver requested humidity x4 and read the register back successfully. But the setting becomes effective only after a later `ctrl_meas` write. That write is missing, so GhostChip reports FAIL—not a compiler error.
+The driver fails one of two assertions. It requested four-times humidity oversampling, but the effective setting remained disabled. The writes succeeded; their order was wrong. Bosch documents that the humidity setting becomes effective only after the next control-measurement write.
 
-Point to expected 3, observed 0, the failed assertion, callback/register trace, and cited rule.
+### 5 — Trace and evidence
 
-## 1:15–1:35 — generate and inspect
+The trace makes that sequence concrete, and the failure links it to the reviewed rule on page twenty-seven. This is the difference between register readback and behavior.
 
-Click **Generate repair**. Show the provider badge, explanation, target file, evidence, and two-line ordering diff.
+### 6 — Proposal boundary
 
-> This proposal came from the offline demo provider, not AI. The provider interface supports replacement, but no proposal is trusted as correct.
+Now I request a bounded repair. The provider is GhostChip Local Demo, using Deterministic Rule V One. It is not AI. The proposal can change only the controlled fixture—not the model, Scenario, evidence, verifier, tests, or Bosch source.
 
-## 1:35–1:55 — approve and verify
+### 7 — Diff and re-execution
 
-Read the preservation notice, then click **Apply & verify**.
+The diff moves one write: humidity control first, then control measurement. GhostChip still does not trust the proposal. Apply and Verify creates temporary derived source, recompiles it, executes the callbacks again, and reruns the identical reviewed model and Scenario.
 
-> GhostChip applies this only to a derived source artifact, recompiles it, and reruns the same reviewed model and Scenario. The original source is preserved.
+### 8 — Verified scope
 
-## 1:55–2:10 — VERIFIED
+Only after those gates pass is the repair marked VERIFIED. That means verified against this reviewed model plus Scenario—not formal proof or silicon certification. The original fixture is preserved.
 
-Show BEFORE FAIL → AFTER VERIFIED, then open the audit details to show matching identities and distinct source/executable hashes.
+### 9 — Real Bosch driver proof
 
-> The provider proposed the patch. GhostChip independently verified it by recompiling and rerunning the driver against the same reviewed model.
+The repair demo uses our small controlled fixture. Separately, GhostChip compiles Bosch’s real B-M-E two-eighty Sensor A-P-I unchanged at its core, verifies pinned source identity, and routes its actual callbacks through the virtual peripheral. GhostChip did not find a Bosch bug.
 
-## 2:10–2:20 — breadth, briefly
+### 10 — Second device
 
-Point to the pristine Bosch real-driver evidence and the ADXL345 second-device card. Do not run either.
+The same generic runtime also executes a reviewed A-D-X-L three-forty-five slice, including read-clear interrupt state and F-I-F-O behavior. The verifier contains no device-specific A-D-X-L branch.
 
-## 2:20–2:30 — close
+### 11 — Close
 
-> GhostChip lets firmware teams test the chip before the chip arrives.
+GhostChip helps firmware teams test reviewed driver behavior before the hardware arrives—with evidence they can inspect, limits they can see, and results they can reproduce.
 
-## Recording fallback
+## On-screen facts to preserve
 
-Prepare the machine with the start command and run `python -m ghostchip.demo --check --smoke` before recording. It exercises the complete repair path. Keep a prerecorded local capture available because the Windows Node/WSL Python/GCC split is the main operational demo risk. Do not substitute a canned result inside the product.
+- Repair provider: `ghostchip-local-demo` / `deterministic-rule-v1` / `local_demo`; not AI.
+- Repair fixture: small controlled BME280 fixture authored for the demo.
+- Real-driver proof: Bosch BME280 SensorAPI unchanged at its core.
+- VERIFIED scope: verified against this reviewed model + Scenario.
+- Generalization: one generic runtime, with a device-specific ADXL345 source adapter and no ADXL345 verifier branch.

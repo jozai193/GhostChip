@@ -1,136 +1,139 @@
-# GhostChip — test embedded drivers before the hardware arrives
+# GhostChip
 
-GhostChip compiles Bosch's pinned BME280 SensorAPI unchanged at its core and connects its actual read, write, and delay callbacks to a reviewed bounded virtual peripheral. The Stage 6 judge interface makes that proof visible and adds a bounded repair loop for the curated BME280 fixture: inspect a proposal, approve it explicitly, then let the deterministic engine recompile and rerun the identical oracle inputs before showing VERIFIED.
+> **Test driver behavior before the hardware arrives.**
 
-It remains a bounded reviewed proof—not a complete sensor emulator, arbitrary driver platform, silicon-equivalent model, or remote code-execution service.
+GhostChip turns reviewed datasheet behavior into an executable virtual peripheral, runs real driver code against it, and traces behavioral failures back to cited datasheet rules.
 
-- [Architecture audit](docs/architecture.md)
-- [DeviceSpec v1 contract](docs/devicespec-v1.md) and [machine-readable schema](schema/devicespec-v1.schema.json)
-- [DeviceSpec 1.1 bounded additions](docs/devicespec-v1.1.md)
-- [Five highest-risk assumptions](docs/risks.md)
-- [Gated implementation plan](docs/implementation-plan.md)
-- [Verification record](docs/verification.md)
-- [Extraction boundary and artifacts](docs/extraction.md)
-- [ADXL345 generalization and anti-hardcoding audit](docs/generalization.md)
-- [Stage 5 product/API truth boundary](docs/stage5-product.md)
-- [Stage 6 bounded repair boundary](docs/stage6-repair.md)
-- [Stage 7 repair-integrity remediation](docs/stage7-remediation.md)
-- [2–3 minute demo script](docs/demo-script.md)
+The current release is a bounded, reproducible proof. It does **not** claim arbitrary datasheet understanding, silicon equivalence, formal verification, or guaranteed hardware correctness.
 
-## Start the judge-facing product
+## The problem
 
-On this Windows machine, the single start command builds the pinned Next.js static export with Windows Node 24, prepares a cached WSL Python environment when necessary, and starts the FastAPI/real-driver service:
+An embedded driver can compile, write a register, and read the value back successfully while the chip never activates the requested behavior. Those semantic failures often remain hidden until scarce hardware arrives.
+
+## What GhostChip does
+
+GhostChip brings a reviewed slice of peripheral behavior into the development loop:
+
+1. pin the source datasheet and extract a bounded register/rule slice;
+2. bind explicit human review to the candidate, request, and source identity;
+3. reconstruct the reviewed bundle at execution time;
+4. compile trusted C driver code;
+5. route its real callbacks through a deterministic virtual peripheral;
+6. evaluate an explicit Scenario and show the trace, cited rule, and verdict.
+
+## 30-second workflow
+
+Open the local product, choose the **Original buggy driver** demonstration, and run it. The fixture requests fourfold humidity oversampling but writes `ctrl_meas` before `ctrl_hum`, so the reviewed BME280 latch rule is never completed. GhostChip reports **FAIL**, links the mismatch to page 27, and exposes the callback order. A bounded deterministic provider can propose the two-line reorder. Only after explicit approval, recompilation, and rerunning the identical reviewed model + Scenario does the derived fixture become **VERIFIED**.
+
+## Flagship BME280 demonstration
+
+The repair demonstration uses a small, controlled BME280 fixture authored for this project. It intentionally contains a register-order bug:
+
+```text
+observed:  ctrl_meas -> ctrl_hum    (setting remains pending)
+required:  ctrl_hum  -> ctrl_meas   (setting becomes effective)
+```
+
+The offline proposal provider is `ghostchip-local-demo` / `deterministic-rule-v1`. It is **not AI**. It can modify only the controlled fixture; it cannot alter the model, Scenario, evidence, assertions, verifier, tests, or Bosch source. “VERIFIED” means **verified against this reviewed model + Scenario**.
+
+## Real Bosch SensorAPI proof
+
+This is deliberately separate from the repair fixture. GhostChip also compiles Bosch Sensortec’s real BME280 SensorAPI, unchanged at its core, and routes its actual read, write, and delay callbacks through the reviewed virtual peripheral. Every run verifies the pinned upstream source hashes before and after compilation and records build, dependency, executable, model, Scenario, instance, fault-plan, callback, observation, and runtime identity.
+
+GhostChip did not find or repair a Bosch bug.
+
+## ADXL345 second-device evidence
+
+The same generic runtime executes a reviewed ADXL345 slice with different stateful semantics: reading `INT_SOURCE` can clear event state, and writing `FIFO_CTL` changes FIFO state. The verifier contains no ADXL345-specific branch; extraction uses a device-document-specific source adapter.
+
+## Architecture
+
+```text
+Pinned datasheet
+      |
+Bounded extraction -> explicit review -> hash-bound reviewed bundle
+                                           |
+Trusted C driver -> callback protocol -> generic virtual peripheral
+                                           |
+                              Scenario assertions + evidence
+                                           |
+                                PASS / FAIL / VERIFIED
+```
+
+The frontend presents backend artifacts; it cannot manufacture a verdict. The local service runs only repository-owned curated drivers. See [architecture](docs/architecture.md), [DeviceSpec 1.0](docs/devicespec-v1.md), [DeviceSpec 1.1 additions](docs/devicespec-v1.1.md), and the [verification record](docs/verification.md).
+
+## How verification works
+
+- DeviceSpec and Scenario inputs are strictly validated.
+- Review acceptance cannot inject semantics; execution reconstructs the exact reviewed candidate.
+- C sources are compiled in a fresh temporary directory.
+- Callbacks are recorded with register, length, status, and logical-time effects.
+- Scenario assertions compare observed behavior with explicit expectations.
+- Results retain evidence and identity hashes so a stale label cannot substitute for execution.
+
+## Repair workflow
+
+The bounded workflow is **FAIL -> proposal -> explicit approval -> compile -> execute -> verify**. The original source is preserved and the proposal is applied only to a temporary derived variant. The current provider is an offline deterministic demonstration, not an AI repair system. See [repair boundary](docs/stage6-repair.md) and [integrity remediation](docs/stage7-remediation.md).
+
+## Tech stack
+
+- Python 3.10+ with FastAPI and Pydantic
+- C11 drivers compiled with GCC
+- Next.js 16, React 19, and TypeScript
+- JSON Schema for DeviceSpec contracts
+- Playwright-based browser QA and deterministic CLI smoke checks
+
+## Running locally
+
+Prerequisites: Windows with WSL/Ubuntu, Python 3.10+, GCC, and Node.js. On the prepared Windows environment:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start-demo.ps1
 ```
 
-Open `http://localhost:8765`. No vendor PDF fetch, API key, database, cloud service, or internet request is needed after the dependencies have been prepared. Only repository-owned curated C drivers are executable.
+Open `http://localhost:8765`.
 
-The deterministic readiness and full UI/API/real-driver smoke gate is:
-
-```sh
-python3 -m ghostchip.demo --check --smoke
-```
-
-It checks required files and Python packages, GCC, the static frontend, exact Bosch hashes, the landing/API path, a fresh `humidity_x4` build and execution, its trace and evidence, then the full curated buggy-driver **FAIL → proposal → explicit apply → deterministic VERIFIED** path.
-
-## Run tests on this Windows machine
-
-The Ubuntu WSL environment has Python 3.12.3 and GCC. Synchronize the repository virtual environment before running the suite so it includes the Stage 5 API dependencies:
-
-```powershell
-wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m pip install -r requirements.txt
-```
-
-Then, from PowerShell:
-
-```powershell
-wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m ghostchip.proof
-wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m unittest discover -s tests -v
-wsl -d Ubuntu --cd '/mnt/e/LovHack season 3 hackathon' --exec .venv-wsl/bin/python -m ghostchip.real_driver --case init_ok
-```
-
-On another Linux/WSL environment, install a C11 GCC toolchain and Python 3.10+, create a Python virtual environment, then:
+After dependencies are installed, the readiness and real-driver smoke gate is:
 
 ```sh
 python3 -m pip install -r requirements.txt
-python3 -m ghostchip.extract fixtures/bme280/datasheet.pdf \
-  --request fixtures/bme280/extraction-request.json \
-  --review fixtures/bme280/extraction-review.json \
-  --output-dir artifacts/bme280-extraction
-python3 -m ghostchip.proof \
-  --bundle artifacts/bme280-extraction/reviewed-bundle-<hash>.json \
-  --output artifacts/bme280-extraction/proof.json
-python3 -m ghostchip.proof
+python3 -m ghostchip.demo --check --smoke
+```
+
+Run the full backend suite:
+
+```sh
 python3 -m unittest discover -s tests -v
-python3 scripts/verify_clean.py
 ```
 
-Run any mandatory real-driver case with:
+Run frontend checks:
 
 ```sh
-python3 -m ghostchip.real_driver --case init_ok
-python3 -m ghostchip.real_driver --case wrong_chip_id
-python3 -m ghostchip.real_driver --case chip_id_bus_error
-python3 -m ghostchip.real_driver --case calibration_bus_error
-python3 -m ghostchip.real_driver --case humidity_x4
-python3 -m ghostchip.real_driver --case humidity_x4_no_latch
-python3 -m ghostchip.real_driver --case reset_after_configuration
+cd web
+npm ci
+npm test
+npm run build
 ```
 
-The no-latch case is an explicitly **UNREVIEWED negative-control model** and is expected to report FAIL. Every other case is expected to PASS. Each invocation recompiles the pristine vendored core in a new temporary directory, verifies upstream hashes before and after the build, and records compiler, dependency, executable, model-bundle, Scenario, instance, FaultPlan, callback, observation, and runtime identities under `artifacts/bosch-bme280/`.
+The optional official Bosch PDF is intentionally not tracked. To reproduce source-byte verification, download it from the [Bosch BME280 product page](https://www.bosch-sensortec.com/products/environmental-sensors/humidity-sensors-bme280/) to `fixtures/bme280/datasheet.pdf`. The expected SHA-256 is `a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89`; a changed vendor file requires review rather than silently changing the pin.
 
-The ADXL345 Stage 3 path is:
+## Scope and limitations
 
-```sh
-python3 -m ghostchip.extract fixtures/adxl345/datasheet.pdf \
-  --request fixtures/adxl345/extraction-request.json \
-  --review fixtures/adxl345/extraction-review.json \
-  --output-dir artifacts/adxl345-extraction
-python3 -m ghostchip.proof \
-  --bundle artifacts/adxl345-extraction/reviewed-bundle-<hash>.json \
-  --scenario fixtures/adxl345/scenario.json \
-  --drivers examples/adxl345_buggy.c examples/adxl345_fixed.c \
-  --output artifacts/adxl345-extraction/proof.json
-```
+Implemented: reviewed register slices, hash-bound evidence, byte registers, explicit internal state, bounded reads, logical delay/settle time, deterministic device-instance bytes, callback fault injection, pristine Bosch core compilation, source/build identity, and deterministic Scenario evaluation.
 
-Expected ADXL345 result: buggy **FAIL (1/2)** with exit 2 after a logging read consumes `SINGLE_TAP`; fixed **PASS (2/2)** by caching the first read. Both select FIFO bypass, which clears the scenario-seeded occupancy through a separately extracted rule.
+Not implemented: arbitrary datasheet or repository ingestion, general AI repair, physical I²C/SPI signaling, measurement/compensation simulation, MCU emulation, remote uploads, multi-user accounts, public deployment, or physical-silicon certification. The runner executes trusted local code; its subprocess limits are not a security sandbox.
 
-Expected proof output:
+Historical engineering records remain under `docs/` and are labeled as checkpoint documents where their scope predates the current release.
 
-```text
-bme280_buggy.c: FAIL (1/2 scenario assertions)
-  Completion contract unmet: expected 3, observed 0
-bme280_fixed.c: PASS (2/2 scenario assertions)
-```
+## Open-source attribution
 
-The command returns zero only for that expected FAIL/PASS pair. Detailed state transitions, rule evidence and artifact hashes are written to `artifacts/proof.json`. No API key or internet connection is used by the proof. It compiles the C sources on each run rather than relying on checked-in executables.
+Bosch Sensortec’s BME280 SensorAPI is vendored under `third_party/bosch_bme280/` with its BSD-3-Clause [license](third_party/bosch_bme280/LICENSE) and [upstream metadata](third_party/bosch_bme280/UPSTREAM.json). Dependency licenses remain with their respective packages.
 
-Both drivers read back humidity code 3 and return successfully. Only the fixed driver writes `ctrl_meas` after `ctrl_hum`, making the setting effective. This test runs in sleep mode; it does not simulate measurements. PASS is scoped to the two completion assertions on this model.
+No root project license has been selected. Until one is added, copyright defaults apply to the original GhostChip code, so public viewing does not grant general permission to copy, modify, or redistribute it.
 
-## Source evidence
+## Release identity
 
-The [official Bosch PDF](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bme280-ds002.pdf) is cached locally as `fixtures/bme280/datasheet.pdf` and ignored by Git. To reproduce source-byte verification after copying/cloning, download it to that path and check:
+- Independently audited technical baseline: `cb446bd00f0112b6239925b68140a01a5bbaa168`
+- Cinematic presentation/UI baseline: `78e4f32431fc73ffadcaee02ed080b90af5300b0`
 
-```powershell
-Invoke-WebRequest -Uri 'https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bme280-ds002.pdf' -OutFile 'fixtures/bme280/datasheet.pdf'
-Get-FileHash 'fixtures/bme280/datasheet.pdf' -Algorithm SHA256
-```
-
-Expected SHA-256: `a2ccdb449fec94380742fe8eec851a11d9bd4142252d332b34682b4deecd7d89`.
-The source test skips when the optional PDF is absent and fails if present bytes differ. A changed vendor download requires review, not changing the hash merely to get green tests. The default proof remains the hand-authored regression baseline. The extraction commands above parse the pinned PDF, emit a pending candidate, apply a request/anchor/candidate-hash-bound review, and pass its reconstructed bundle explicitly to the proof runner. Its `model_origin` is `automatic_extraction_reviewed_bundle`.
-
-## Automatic versus reviewed
-
-Automatic: PDF hash/page ingestion; register heading, address, reset, access and bit-field extraction for the requested slice; recognition of the write-latch sentence; creation of `effective_osrs_h` and the generic `after_write` transition; page/section evidence and source-page hashes; schema and semantic validation.
-
-Explicit manual inputs: which register slice to model, the board-selected 0x76 address, the sleep-only coverage constraint, the conservative reset-settle abstraction, deterministic device-instance calibration bytes, stable rule naming, Scenario expectations, and evidence acceptance. Review only changes `pending` to `accepted`; it cannot inject semantics. Execution reconstructs the exact candidate/review/request/anchor bundle, so stale reviewed semantics cannot reach compilation.
-
-## Scope and execution limits
-
-Implemented: bounded PDF ingestion, source-layout extraction for reviewed slices, execution-time review-bundle verification, strict DeviceSpec/Scenario/FaultPlan validation, byte registers, internal state, bounded incrementing reads, explicit virtual delay/settle time, parameterized instance bytes, callback faults, typed API observations, pristine Bosch core compilation, build/source identity, and deterministic scenario evaluation.
-
-Not implemented: general arbitrary-datasheet or LLM extraction, arbitrary-repository repair, a shipped live-AI provider, autonomous patch application, arbitrary vendor SDKs, real I²C/SPI signaling, measurement/compensation, MCU emulation, remote uploads, multi-user accounts, or public deployment. Stage 6 ships a provider interface and a visibly labeled offline deterministic demo provider that is **not AI**. Its single-file patch can affect only `examples/bme280_buggy.c`; it cannot alter the DeviceSpec, Scenario, evidence, assertions, tests, verifier, or pristine Bosch source. The frontend presents backend artifacts and cannot manufacture a verdict.
-
-Run only trusted code with this local runner. Its subprocess limits are not filesystem/network isolation. No remote repository or product deployment was created. Original project code is newly authored; no project distribution license has been selected. The vendor PDF remains vendor material and dependencies retain their licenses.
+These identities separate the audited verification behavior from the later presentation-only UI pass.
