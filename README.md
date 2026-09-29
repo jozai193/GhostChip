@@ -6,6 +6,10 @@ GhostChip turns reviewed datasheet behavior into an executable virtual periphera
 
 The current release is a bounded, reproducible proof. It does **not** claim arbitrary datasheet understanding, silicon equivalence, formal verification, or guaranteed hardware correctness.
 
+## Demo
+
+[Watch the 2:49 GhostChip demo](https://youtu.be/s3OxK_8vqZI).
+
 ## The problem
 
 An embedded driver can compile, write a register, and read the value back successfully while the chip never activates the requested behavior. Those semantic failures often remain hidden until scarce hardware arrives.
